@@ -4,6 +4,9 @@ import 'package:go_router/go_router.dart';
 
 import '../features/announcements/announcement_detail_screen.dart';
 import '../features/admin/admin_users_screen.dart';
+import '../features/admin/admin_system_screen.dart';
+import '../features/admin/admin_reports_screen.dart';
+import '../features/admin/admin_payroll_periods_screen.dart';
 import '../features/announcements/announcements_screen.dart';
 import '../features/approvals/approval_detail_screen.dart';
 import '../features/approvals/approvals_screen.dart';
@@ -215,6 +218,18 @@ final routerProvider = Provider<GoRouter>((ref) {
                       GoRoute(
                         path: 'users',
                         builder: (_, __) => const AdminUsersScreen(),
+                      ),
+                      GoRoute(
+                        path: 'system',
+                        builder: (_, __) => const AdminSystemScreen(),
+                      ),
+                      GoRoute(
+                        path: 'reports',
+                        builder: (_, __) => const AdminReportsScreen(),
+                      ),
+                      GoRoute(
+                        path: 'payroll-periods',
+                        builder: (_, __) => const AdminPayrollPeriodsScreen(),
                       ),
                     ],
                   ),

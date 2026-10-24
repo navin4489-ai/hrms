@@ -41,6 +41,13 @@ class MoreScreen extends ConsumerWidget {
     ]);
     final canCreateEmployee = auth.hasPermission('employee.create');
     final canManageUsers = auth.hasPermission('admin.users');
+    final canManageSystem = auth.hasAnyPermission([
+      'admin.roles',
+      'admin.config',
+      'audit.view',
+    ]);
+    final canViewReports = auth.hasPermission('report.view');
+    final canManagePayroll = auth.hasPermission('payroll.manage');
 
     return AppScaffold(
       title: Strings.moreTitle,
@@ -103,7 +110,11 @@ class MoreScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            if (canManageEmployees) ...[
+            if (canManageEmployees ||
+                canManageUsers ||
+                canManageSystem ||
+                canViewReports ||
+                canManagePayroll) ...[
               const SizedBox(height: 12),
               SectionCard(
                 title: Strings.adminTools,
@@ -129,6 +140,24 @@ class MoreScreen extends ConsumerWidget {
                         icon: Icons.manage_accounts_outlined,
                         label: 'User accounts',
                         onTap: () => context.go('/more/admin/users'),
+                      ),
+                    if (canManageSystem)
+                      _Tile(
+                        icon: Icons.settings_suggest_outlined,
+                        label: 'System administration',
+                        onTap: () => context.go('/more/admin/system'),
+                      ),
+                    if (canViewReports)
+                      _Tile(
+                        icon: Icons.query_stats_rounded,
+                        label: 'Workforce reports',
+                        onTap: () => context.go('/more/admin/reports'),
+                      ),
+                    if (canManagePayroll)
+                      _Tile(
+                        icon: Icons.payments_outlined,
+                        label: 'Payroll periods',
+                        onTap: () => context.go('/more/admin/payroll-periods'),
                       ),
                   ],
                 ),
