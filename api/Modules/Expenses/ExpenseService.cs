@@ -457,8 +457,8 @@ public sealed class ExpenseService : IExpenseService
         from = default;
         to = default;
         if (!DateOnly.TryParseExact(value.Trim(), "yyyy-MM", out var month)) return false;
-        from = month.ToDateTime(TimeOnly.MinValue);
-        to = month.AddMonths(1).ToDateTime(TimeOnly.MinValue);
+        from = DateTime.SpecifyKind(month.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+        to = DateTime.SpecifyKind(month.AddMonths(1).ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
         return true;
     }
 

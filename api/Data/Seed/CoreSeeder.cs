@@ -166,7 +166,7 @@ public sealed class CoreSeeder : IDataSeeder
                 EffectiveDate = employee.JoinDate,
                 NewValue = "Joined as " + designations.First(d => d.Id == employee.DesignationId).Name,
                 ApprovedBy = "HR",
-                CreatedAt = employee.JoinDate.ToDateTime(TimeOnly.MinValue)
+                CreatedAt = DateTime.SpecifyKind(employee.JoinDate.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc)
             });
         }
 

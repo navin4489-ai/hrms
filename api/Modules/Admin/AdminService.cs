@@ -414,10 +414,10 @@ public sealed class AdminService : IAdminService
         }
 
         if (from is { } fromDate)
-            query = query.Where(a => a.Timestamp >= fromDate.ToDateTime(TimeOnly.MinValue));
+            query = query.Where(a => a.Timestamp >= DateTime.SpecifyKind(fromDate.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc));
 
         if (to is { } toDate)
-            query = query.Where(a => a.Timestamp < toDate.AddDays(1).ToDateTime(TimeOnly.MinValue));
+            query = query.Where(a => a.Timestamp < DateTime.SpecifyKind(toDate.AddDays(1).ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc));
 
         var result = await query
             .OrderByDescending(a => a.Timestamp)

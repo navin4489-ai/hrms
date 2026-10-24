@@ -78,7 +78,7 @@ public sealed class PayrollSeedData : IDataSeeder
                 CutOffDate = end.AddDays(5), // attendance/leave input cutoff, 5th of the next month (FR-ADM-071)
                 LockedAt = status == PayrollPeriodStatus.Open
                     ? null
-                    : end.ToDateTime(TimeOnly.MinValue).AddDays(5),
+                    : DateTime.SpecifyKind(end.ToDateTime(TimeOnly.MinValue).AddDays(5), DateTimeKind.Utc),
                 LockReason = status == PayrollPeriodStatus.Open ? null : "Routine monthly payroll close.",
                 CreatedAt = DateTime.UtcNow
             });
@@ -105,7 +105,8 @@ public sealed class PayrollSeedData : IDataSeeder
             if (!periods.TryGetValue(month, out var period) || period.Status == PayrollPeriodStatus.Open)
                 continue;
 
-            var publishedAt = period.EndDate.ToDateTime(TimeOnly.MinValue).AddDays(6).AddHours(10);
+            var publishedAt = DateTime.SpecifyKind(
+                period.EndDate.ToDateTime(TimeOnly.MinValue).AddDays(6).AddHours(10), DateTimeKind.Utc);
 
             foreach (var employee in employeeIds)
             {
