@@ -40,56 +40,60 @@ public static class AdminAccountBootstrapper
             $"CREATE TABLE IF NOT EXISTS \"{Schema}\".\"{MarkerTable}\" (\"id\" integer PRIMARY KEY)",
             cancellationToken);
 
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var connection = db.Database.GetDbConnection();
-        await using (var markerCheck = connection.CreateCommand())
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            markerCheck.Transaction = transaction.GetDbTransaction();
-            markerCheck.CommandText = $"SELECT EXISTS (SELECT 1 FROM \"{Schema}\".\"{MarkerTable}\" WHERE \"id\" = 1)";
-            if ((bool)(await markerCheck.ExecuteScalarAsync(cancellationToken) ?? false))
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            var connection = db.Database.GetDbConnection();
+            await using (var markerCheck = connection.CreateCommand())
             {
-                await transaction.CommitAsync(cancellationToken);
-                logger.LogInformation("One-time admin bootstrap was already completed; no account changes made.");
-                return;
+                markerCheck.Transaction = transaction.GetDbTransaction();
+                markerCheck.CommandText = $"SELECT EXISTS (SELECT 1 FROM \"{Schema}\".\"{MarkerTable}\" WHERE \"id\" = 1)";
+                if ((bool)(await markerCheck.ExecuteScalarAsync(cancellationToken) ?? false))
+                {
+                    await transaction.CommitAsync(cancellationToken);
+                    logger.LogInformation("One-time admin bootstrap was already completed; no account changes made.");
+                    return;
+                }
             }
-        }
 
-        var admin = await db.UserAccounts
-            .Include(user => user.UserRoles)
-            .ThenInclude(userRole => userRole.Role)
-            .SingleOrDefaultAsync(user => user.UserName == "admin", cancellationToken)
-            ?? throw new InvalidOperationException("The seeded admin account was not found; bootstrap did not run.");
+            var admin = await db.UserAccounts
+                .Include(user => user.UserRoles)
+                .ThenInclude(userRole => userRole.Role)
+                .SingleOrDefaultAsync(user => user.UserName == "admin", cancellationToken)
+                ?? throw new InvalidOperationException("The seeded admin account was not found; bootstrap did not run.");
 
-        if (!admin.UserRoles.Any(userRole => userRole.Role?.Name == "SuperAdmin"))
-            throw new InvalidOperationException("The seeded admin account does not have the SuperAdmin role.");
+            if (!admin.UserRoles.Any(userRole => userRole.Role?.Name == "SuperAdmin"))
+                throw new InvalidOperationException("The seeded admin account does not have the SuperAdmin role.");
 
-        var identifierInUse = await db.UserAccounts.AsNoTracking().AnyAsync(user =>
-            user.Id != admin.Id &&
-            (user.UserName.ToLower() == email || (user.Email != null && user.Email.ToLower() == email)),
-            cancellationToken);
-        if (identifierInUse)
-            throw new InvalidOperationException("The requested admin email is already assigned to another account.");
+            var identifierInUse = await db.UserAccounts.AsNoTracking().AnyAsync(user =>
+                user.Id != admin.Id &&
+                (user.UserName.ToLower() == email || (user.Email != null && user.Email.ToLower() == email)),
+                cancellationToken);
+            if (identifierInUse)
+                throw new InvalidOperationException("The requested admin email is already assigned to another account.");
 
-        var now = DateTime.UtcNow;
-        admin.UserName = email;
-        admin.Email = email;
-        admin.PasswordHash = PasswordHasher.Hash(password);
-        admin.FailedLoginCount = 0;
-        admin.MustChangePassword = false;
-        admin.UpdatedAt = now;
+            var now = DateTime.UtcNow;
+            admin.UserName = email;
+            admin.Email = email;
+            admin.PasswordHash = PasswordHasher.Hash(password);
+            admin.FailedLoginCount = 0;
+            admin.MustChangePassword = false;
+            admin.UpdatedAt = now;
 
-        var activeSessions = await db.RefreshTokens
-            .Where(token => token.UserId == admin.Id && token.RevokedAt == null)
-            .ToListAsync(cancellationToken);
-        foreach (var session in activeSessions)
-            session.RevokedAt = now;
+            var activeSessions = await db.RefreshTokens
+                .Where(token => token.UserId == admin.Id && token.RevokedAt == null)
+                .ToListAsync(cancellationToken);
+            foreach (var session in activeSessions)
+                session.RevokedAt = now;
 
-        await db.SaveChangesAsync(cancellationToken);
-        await db.Database.ExecuteSqlRawAsync(
-            $"INSERT INTO \"{Schema}\".\"{MarkerTable}\" (\"id\") VALUES (1)",
-            cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await db.Database.ExecuteSqlRawAsync(
+                $"INSERT INTO \"{Schema}\".\"{MarkerTable}\" (\"id\") VALUES (1)",
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
 
-        logger.LogInformation("One-time admin bootstrap completed for {AdminEmail}; active sessions were revoked.", email);
+            logger.LogInformation("One-time admin bootstrap completed for {AdminEmail}; active sessions were revoked.", email);
+        });
     }
 }
