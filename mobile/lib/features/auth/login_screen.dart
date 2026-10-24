@@ -5,7 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/strings.dart';
 import '../../providers/auth_provider.dart';
-import '../../widgets/app_scaffold.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/wintech_logo.dart';
 import 'login_form.dart';
 
 /// Sign-in screen (FR-EMP-001/006): username + password, credential guidance,
@@ -58,83 +59,122 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final auth = ref.watch(authControllerProvider);
     final sessionExpired =
         auth.sessionExpired && auth.status == AuthStatus.unauthenticated;
 
-    return AppScaffold(
-      title: Strings.appName,
-      showBell: false,
+    return Scaffold(
+      backgroundColor: scheme.surface,
       body: SafeArea(
+        bottom: false,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 24),
-              _LogoMark(color: theme.colorScheme.primary),
-              const SizedBox(height: 20),
-              Text(
-                'Welcome back',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
+              Container(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 34),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [AppColors.brandDark, AppColors.brand],
+                  ),
+                  borderRadius: BorderRadius.vertical(
+                    bottom: Radius.circular(32),
+                  ),
                 ),
-                textAlign: TextAlign.center,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const WintechLogo(
+                      size: 56,
+                      showWordmark: true,
+                      wordmarkColor: Colors.white,
+                    ),
+                    const SizedBox(height: 30),
+                    Text(
+                      'People operations,\nmade simple.',
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        height: 1.08,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'A better workday starts here.',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.78),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                'Sign in to access your HR self-service',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 36),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Welcome back',
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Sign in to access your HR self-service.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    if (sessionExpired) ...[
+                      _SessionExpiredBanner(
+                        onDismiss: () => ref
+                            .read(authControllerProvider.notifier)
+                            .acknowledgeSessionExpired(),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(18),
+                        child: LoginForm(
+                          busy: _busy,
+                          errorText: _errorText,
+                          onSubmit: _submit,
+                          onForgotPassword: () =>
+                              context.push('/forgot-password'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.shield_outlined,
+                          size: 16,
+                          color: scheme.primary,
+                        ),
+                        const SizedBox(width: 7),
+                        Text(
+                          'Your workplace, securely connected',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 28),
-              if (sessionExpired) ...[
-                _SessionExpiredBanner(
-                  onDismiss: () => ref
-                      .read(authControllerProvider.notifier)
-                      .acknowledgeSessionExpired(),
-                ),
-                const SizedBox(height: 16),
-              ],
-              LoginForm(
-                busy: _busy,
-                errorText: _errorText,
-                onSubmit: _submit,
-                onForgotPassword: () => context.push('/forgot-password'),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LogoMark extends StatelessWidget {
-  const _LogoMark({required this.color});
-
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 84,
-        height: 84,
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(24),
-        ),
-        child: const Center(
-          child: Text(
-            'W',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 44,
-              fontWeight: FontWeight.w800,
-            ),
           ),
         ),
       ),

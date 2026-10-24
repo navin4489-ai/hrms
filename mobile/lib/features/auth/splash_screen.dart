@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/strings.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/wintech_logo.dart';
 
 /// First route while the stored session is being restored (FR-EMP-005).
 /// The router redirect moves to /login or /home once the status flips.
@@ -16,29 +18,20 @@ class SplashScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 88,
-              height: 88,
-              decoration: BoxDecoration(
-                color: scheme.primary,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: const Center(
-                child: Text(
-                  'W',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 46,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ),
+            const WintechLogo(size: 88),
             const SizedBox(height: 20),
             Text(
               Strings.appName,
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'People & work, in sync',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppColors.brand,
+                fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 32),

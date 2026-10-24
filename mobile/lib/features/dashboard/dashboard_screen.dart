@@ -10,11 +10,13 @@ import '../../providers/attendance_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/dashboard_provider.dart';
 import '../../router/deep_link_parser.dart';
+import '../../theme/app_theme.dart';
 import '../../widgets/app_scaffold.dart';
 import '../../widgets/async_body.dart';
 import '../../widgets/section_card.dart';
 import '../../widgets/shimmer_box.dart';
 import '../../widgets/status_chip.dart';
+import '../../widgets/wintech_logo.dart';
 
 /// Employee home (FR-EMP-010..014): greeting, punch card, quick actions,
 /// pending approvals, leave balances, my requests, announcements, holidays.
@@ -220,43 +222,100 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final title = data.greeting.isNotEmpty
-        ? data.greeting
-        : (employee ?? Strings.dashboard);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w700,
+    final subtitle = [
+      if (data.employee?.designation?.isNotEmpty ?? false)
+        data.employee!.designation!,
+      if (data.employee?.department?.isNotEmpty ?? false)
+        data.employee!.department!,
+    ].join(' · ');
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppColors.brandDark, AppColors.brand],
           ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          AppFormatters.date(data.today),
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: scheme.onSurfaceVariant,
-          ),
-        ),
-        if (data.employee != null) ...[
-          const SizedBox(height: 2),
-          Text(
-            [
-              if (data.employee!.designation != null &&
-                  data.employee!.designation!.isNotEmpty)
-                data.employee!.designation!,
-              if (data.employee!.department != null &&
-                  data.employee!.department!.isNotEmpty)
-                data.employee!.department!,
-            ].join(' · '),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
+        child: Stack(
+          children: [
+            Positioned(
+              right: -36,
+              top: -54,
+              child: Container(
+                width: 170,
+                height: 170,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.045),
+                ),
+              ),
             ),
-          ),
-        ],
-      ],
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          data.greeting.isEmpty
+                              ? 'WELCOME BACK'
+                              : data.greeting.toUpperCase(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: AppColors.accent,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.1,
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                        Text(
+                          employee ?? 'Your workday, together.',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.4,
+                            height: 1.05,
+                          ),
+                        ),
+                        const SizedBox(height: 9),
+                        Text(
+                          AppFormatters.date(data.today),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.82),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        if (subtitle.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.white.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  const WintechLogo(size: 54),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
