@@ -32,6 +32,7 @@ class _CreateEmployeeScreenState extends ConsumerState<CreateEmployeeScreen> {
   String? _legalEntityId;
   String? _designationId;
   String? _locationId;
+  String? _managerId;
   String _employmentType = 'FullTime';
   bool _createLoginAccount = true;
   String? _error;
@@ -88,6 +89,7 @@ class _CreateEmployeeScreenState extends ConsumerState<CreateEmployeeScreen> {
           'departmentId': _departmentId,
           'locationId': _locationId,
           'legalEntityId': _legalEntityId,
+          if (_managerId != null) 'managerId': _managerId,
           'employmentType': _employmentType,
         },
       );
@@ -346,6 +348,31 @@ class _CreateEmployeeScreenState extends ConsumerState<CreateEmployeeScreen> {
             onChanged: _saving
                 ? null
                 : (value) => setState(() => _legalEntityId = value),
+          ),
+          const SizedBox(height: 14),
+          DropdownButtonFormField<String?>(
+            initialValue: _managerId,
+            decoration: const InputDecoration(
+              labelText: Strings.reportingManager,
+            ),
+            items: [
+              const DropdownMenuItem<String?>(
+                value: null,
+                child: Text('No reporting manager'),
+              ),
+              for (final manager in options.managers)
+                DropdownMenuItem<String?>(
+                  value: manager.employeeId,
+                  child: Text(
+                    manager.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: _saving
+                ? null
+                : (value) => setState(() => _managerId = value),
           ),
           const SizedBox(height: 14),
           DropdownButtonFormField<String>(

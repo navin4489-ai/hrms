@@ -74,6 +74,8 @@ class OrgUnit {
   final String? code;
   final String? type;
   final String? status;
+
+  bool get isLegalEntity => type == 'Entity' || type == 'LegalEntity';
 }
 
 /// `GET /locations` item (used for location filters).
@@ -115,4 +117,29 @@ class DesignationEntry {
   final String? code;
   final String? grade;
   final String? status;
+}
+
+/// Employee option for reporting-manager pickers.
+class EmployeeManagerOption {
+  const EmployeeManagerOption({
+    required this.employeeId,
+    required this.employeeNumber,
+    required this.displayName,
+    this.status,
+  });
+
+  factory EmployeeManagerOption.fromJson(Map<String, dynamic> json) =>
+      EmployeeManagerOption(
+        employeeId: JsonX.strOr(json['employeeId']),
+        employeeNumber: JsonX.strOr(json['employeeNumber']),
+        displayName: JsonX.strOr(json['displayName']),
+        status: JsonX.str(json['status']),
+      );
+
+  final String employeeId;
+  final String employeeNumber;
+  final String displayName;
+  final String? status;
+
+  String get label => '$displayName · $employeeNumber';
 }

@@ -98,12 +98,14 @@ class EmployeeCreateOptions {
     required this.legalEntities,
     required this.locations,
     required this.designations,
+    required this.managers,
   });
 
   final List<OrgUnit> departments;
   final List<OrgUnit> legalEntities;
   final List<LocationEntry> locations;
   final List<DesignationEntry> designations;
+  final List<EmployeeManagerOption> managers;
 }
 
 final employeeCreateOptionsProvider = FutureProvider<EmployeeCreateOptions>((
@@ -113,6 +115,10 @@ final employeeCreateOptionsProvider = FutureProvider<EmployeeCreateOptions>((
   final orgUnitsJson = await api.getList('/org-units');
   final locationJson = await api.getList('/locations');
   final designationJson = await api.getList('/designations');
+  final employeePage = await api.getMap(
+    '/employees',
+    query: {'page': 1, 'pageSize': 100},
+  );
 
   final orgUnits = orgUnitsJson
       .whereType<Map>()
@@ -128,14 +134,22 @@ final employeeCreateOptionsProvider = FutureProvider<EmployeeCreateOptions>((
       .map((e) => DesignationEntry.fromJson(Map<String, dynamic>.from(e)))
       .where((item) => item.status == null || item.status == 'Active')
       .toList(growable: false);
+  final managerRows = employeePage['items'];
+  final managers = (managerRows is List ? managerRows : const [])
+      .whereType<Map>()
+      .map((e) => EmployeeManagerOption.fromJson(Map<String, dynamic>.from(e)))
+      .where((employee) {
+        final status = employee.status?.toLowerCase();
+        return status == null || status == 'active' || status == 'probation';
+      })
+      .toList(growable: false);
 
   return EmployeeCreateOptions(
     departments: orgUnits.where((unit) => unit.type == 'Department').toList(),
-    legalEntities: orgUnits
-        .where((unit) => unit.type == 'LegalEntity')
-        .toList(),
+    legalEntities: orgUnits.where((unit) => unit.isLegalEntity).toList(),
     locations: locations,
     designations: designations,
+    managers: managers,
   );
 });
 

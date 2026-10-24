@@ -175,6 +175,7 @@ abstract final class Strings {
   static const location = 'Location';
   static const designation = 'Designation';
   static const manager = 'Manager';
+  static const reportingManager = 'Reporting manager';
   static const workEmail = 'Work email';
   static const phone = 'Phone';
   static const noPhone = 'Not shared';

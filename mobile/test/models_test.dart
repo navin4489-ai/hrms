@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wintech_hrms/models/case_models.dart';
 import 'package:wintech_hrms/models/communication_models.dart';
+import 'package:wintech_hrms/models/directory_models.dart';
 import 'package:wintech_hrms/models/auth_models.dart';
 import 'package:wintech_hrms/models/me_models.dart';
 
@@ -32,6 +33,30 @@ void main() {
 
       expect(user.hasPermission('employee.view'), isTrue);
       expect(user.hasPermission('employee.create'), isFalse);
+    });
+  });
+
+  group('Organization reference data', () {
+    test('recognizes the API contract legal-entity value "Entity"', () {
+      final unit = OrgUnit.fromJson(const {
+        'id': 'entity-1',
+        'code': 'WSP',
+        'name': 'Wintech Solutions',
+        'type': 'Entity',
+        'status': 'Active',
+      });
+      expect(unit.isLegalEntity, isTrue);
+    });
+
+    test('parses a reporting-manager picker option', () {
+      final manager = EmployeeManagerOption.fromJson(const {
+        'employeeId': 'manager-1',
+        'employeeNumber': 'EMP001',
+        'displayName': 'Naveen',
+        'status': 'Active',
+      });
+      expect(manager.employeeId, 'manager-1');
+      expect(manager.label, 'Naveen · EMP001');
     });
   });
 
