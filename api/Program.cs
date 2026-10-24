@@ -254,16 +254,21 @@ using (var scope = app.Services.CreateScope())
         if (databaseOptions.IsPostgreSql)
         {
             const string schema = "wintech_hrms";
-            await db.Database.ExecuteSqlRawAsync($"CREATE SCHEMA IF NOT EXISTS \"{schema}\"");
             await db.Database.OpenConnectionAsync();
             try
             {
                 await using var command = db.Database.GetDbConnection().CreateCommand();
-                command.CommandText = "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'wintech_hrms' AND table_name = 'Organizations')";
+                command.CommandText = "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'wintech_hrms' AND table_name = '__hrms_schema_ready')";
                 var schemaInitialized = (bool)(await command.ExecuteScalarAsync() ?? false);
                 if (!schemaInitialized)
                 {
+                    // This schema belongs exclusively to HRMS. Recreate it if a previous first-start
+                    // attempt left a partial DDL set; the marker is written only after every EF table
+                    // exists, and no business seed data is written until this block completes.
+                    await db.Database.ExecuteSqlRawAsync($"DROP SCHEMA IF EXISTS \"{schema}\" CASCADE");
+                    await db.Database.ExecuteSqlRawAsync($"CREATE SCHEMA \"{schema}\"");
                     await db.GetService<IRelationalDatabaseCreator>().CreateTablesAsync(CancellationToken.None);
+                    await db.Database.ExecuteSqlRawAsync($"CREATE TABLE \"{schema}\".\"__hrms_schema_ready\" (\"id\" integer PRIMARY KEY)");
                     logger.LogInformation("Created HRMS tables in the isolated PostgreSQL schema {Schema}.", schema);
                 }
             }
