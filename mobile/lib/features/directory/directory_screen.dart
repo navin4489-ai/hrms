@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/strings.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/directory_provider.dart';
 import '../../widgets/app_scaffold.dart';
 import '../../widgets/async_body.dart';
@@ -48,11 +49,28 @@ class _DirectoryScreenState extends ConsumerState<DirectoryScreen> {
       locationId: _locationId,
     );
     final page = ref.watch(directoryProvider(query));
+    final canCreateEmployee = ref
+        .watch(authStateProvider)
+        .hasPermission('employee.create');
     final departments = ref.watch(departmentsProvider).value ?? const [];
     final locations = ref.watch(locationsProvider).value ?? const [];
 
     return AppScaffold(
       title: Strings.directory,
+      floatingActionButton: canCreateEmployee
+          ? FloatingActionButton.extended(
+              onPressed: () async {
+                final created = await context.push<bool>('/more/directory/new');
+                if (!context.mounted || created != true) return;
+                ref.invalidate(directoryProvider(query));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text(Strings.employeeCreated)),
+                );
+              },
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              label: const Text(Strings.addEmployee),
+            )
+          : null,
       body: RefreshIndicator(
         onRefresh: () async => ref.invalidate(directoryProvider(query)),
         child: Column(

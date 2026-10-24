@@ -180,6 +180,17 @@ abstract final class Strings {
   static const noPhone = 'Not shared';
   static const employeeDetail = 'Employee';
   static const noEmployees = 'No employees found';
+  static const addEmployee = 'Add employee';
+  static const createEmployee = 'Create employee';
+  static const employeeCreated = 'Employee added successfully';
+  static const saving = 'Saving…';
+  static const employeeNumberOptional = 'Employee number (optional)';
+  static const firstName = 'First name';
+  static const lastName = 'Last name';
+  static const selectDepartment = 'Select a department';
+  static const selectDesignation = 'Select a designation';
+  static const selectLocation = 'Select a location';
+  static const selectLegalEntity = 'Select a legal entity';
 
   // Profile
   static const profile = 'My profile';

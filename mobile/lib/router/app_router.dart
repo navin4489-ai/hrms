@@ -17,6 +17,7 @@ import '../features/auth/mfa_screen.dart';
 import '../features/auth/splash_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/directory/directory_screen.dart';
+import '../features/directory/create_employee_screen.dart';
 import '../features/directory/employee_detail_screen.dart';
 import '../features/documents/documents_screen.dart';
 import '../features/documents/letters_screen.dart';
@@ -212,6 +213,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                     path: 'directory',
                     builder: (_, __) => const DirectoryScreen(),
                     routes: [
+                      GoRoute(
+                        path: 'new',
+                        builder: (_, __) => const CreateEmployeeScreen(),
+                      ),
                       GoRoute(
                         path: ':id',
                         builder: (_, state) => EmployeeDetailScreen(

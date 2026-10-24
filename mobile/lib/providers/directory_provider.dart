@@ -90,6 +90,55 @@ final locationsProvider = FutureProvider<List<LocationEntry>>((ref) async {
       .toList(growable: false);
 });
 
+/// Legal entities, departments, designations and locations required to create
+/// an employee record.
+class EmployeeCreateOptions {
+  const EmployeeCreateOptions({
+    required this.departments,
+    required this.legalEntities,
+    required this.locations,
+    required this.designations,
+  });
+
+  final List<OrgUnit> departments;
+  final List<OrgUnit> legalEntities;
+  final List<LocationEntry> locations;
+  final List<DesignationEntry> designations;
+}
+
+final employeeCreateOptionsProvider = FutureProvider<EmployeeCreateOptions>((
+  ref,
+) async {
+  final api = ref.watch(apiClientProvider);
+  final orgUnitsJson = await api.getList('/org-units');
+  final locationJson = await api.getList('/locations');
+  final designationJson = await api.getList('/designations');
+
+  final orgUnits = orgUnitsJson
+      .whereType<Map>()
+      .map((e) => OrgUnit.fromJson(Map<String, dynamic>.from(e)))
+      .where((unit) => unit.status == null || unit.status == 'Active')
+      .toList(growable: false);
+  final locations = locationJson
+      .whereType<Map>()
+      .map((e) => LocationEntry.fromJson(Map<String, dynamic>.from(e)))
+      .toList(growable: false);
+  final designations = designationJson
+      .whereType<Map>()
+      .map((e) => DesignationEntry.fromJson(Map<String, dynamic>.from(e)))
+      .where((item) => item.status == null || item.status == 'Active')
+      .toList(growable: false);
+
+  return EmployeeCreateOptions(
+    departments: orgUnits.where((unit) => unit.type == 'Department').toList(),
+    legalEntities: orgUnits
+        .where((unit) => unit.type == 'LegalEntity')
+        .toList(),
+    locations: locations,
+    designations: designations,
+  );
+});
+
 /// `GET /employees/{id}` — own record or `employee.view` for others.
 final employeeDetailProvider = FutureProvider.family<MeProfile, String>((
   ref,

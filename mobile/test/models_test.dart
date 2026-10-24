@@ -2,9 +2,38 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wintech_hrms/models/case_models.dart';
 import 'package:wintech_hrms/models/communication_models.dart';
+import 'package:wintech_hrms/models/auth_models.dart';
 import 'package:wintech_hrms/models/me_models.dart';
 
 void main() {
+  group('UserPrincipal permissions', () {
+    test('SuperAdmin wildcard grants every mobile permission', () {
+      const user = UserPrincipal(
+        id: 'u1',
+        employeeId: 'e1',
+        employeeNumber: 'EMP001',
+        displayName: 'Admin',
+        permissions: ['*'],
+      );
+
+      expect(user.hasPermission('employee.create'), isTrue);
+      expect(user.hasPermission('admin.users'), isTrue);
+    });
+
+    test('regular permissions stay limited to the granted codes', () {
+      const user = UserPrincipal(
+        id: 'u2',
+        employeeId: 'e2',
+        employeeNumber: 'EMP002',
+        displayName: 'Employee',
+        permissions: ['employee.view'],
+      );
+
+      expect(user.hasPermission('employee.view'), isTrue);
+      expect(user.hasPermission('employee.create'), isFalse);
+    });
+  });
+
   group('Announcement.fromJson (contract §16)', () {
     test('parses every documented field', () {
       final item = Announcement.fromJson(const {

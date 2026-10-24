@@ -90,3 +90,29 @@ class LocationEntry {
   final String name;
   final String? city;
 }
+
+/// `GET /designations` item used by the create-employee form.
+class DesignationEntry {
+  const DesignationEntry({
+    required this.id,
+    required this.name,
+    this.code,
+    this.grade,
+    this.status,
+  });
+
+  factory DesignationEntry.fromJson(Map<String, dynamic> json) =>
+      DesignationEntry(
+        id: JsonX.strOr(json['id']),
+        name: JsonX.strOr(json['name']),
+        code: JsonX.str(json['code']),
+        grade: JsonX.str(json['grade']),
+        status: JsonX.str(json['status']),
+      );
+
+  final String id;
+  final String name;
+  final String? code;
+  final String? grade;
+  final String? status;
+}

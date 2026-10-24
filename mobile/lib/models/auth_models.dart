@@ -49,9 +49,10 @@ class UserPrincipal {
   final List<String> roles;
   final List<String> permissions;
 
-  /// FR-EMP-014: UI gating helper. SuperAdmin-style wildcard is not used by
-  /// the mobile app; the login payload lists explicit codes.
-  bool hasPermission(String code) => permissions.contains(code);
+  /// FR-EMP-014: UI gating helper. SuperAdmin's `*` permission grants every
+  /// permission, matching the server authorization policy.
+  bool hasPermission(String code) =>
+      permissions.contains(code) || permissions.contains('*');
 
   bool hasAnyPermission(Iterable<String> codes) =>
       codes.any(permissions.contains);
