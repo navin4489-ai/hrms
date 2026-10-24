@@ -40,6 +40,7 @@ class MoreScreen extends ConsumerWidget {
       'employee.manage',
     ]);
     final canCreateEmployee = auth.hasPermission('employee.create');
+    final canManageUsers = auth.hasPermission('admin.users');
 
     return AppScaffold(
       title: Strings.moreTitle,
@@ -122,6 +123,12 @@ class MoreScreen extends ConsumerWidget {
                         icon: Icons.person_add_alt_1_rounded,
                         label: Strings.addEmployee,
                         onTap: () => context.go('/more/directory/new'),
+                      ),
+                    if (canManageUsers)
+                      _Tile(
+                        icon: Icons.manage_accounts_outlined,
+                        label: 'User accounts',
+                        onTap: () => context.go('/more/admin/users'),
                       ),
                   ],
                 ),

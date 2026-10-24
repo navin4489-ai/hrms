@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/announcements/announcement_detail_screen.dart';
+import '../features/admin/admin_users_screen.dart';
 import '../features/announcements/announcements_screen.dart';
 import '../features/approvals/approval_detail_screen.dart';
 import '../features/approvals/approvals_screen.dart';
@@ -208,6 +209,15 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: '/more',
                 builder: (_, __) => const MoreScreen(),
                 routes: [
+                  GoRoute(
+                    path: 'admin',
+                    routes: [
+                      GoRoute(
+                        path: 'users',
+                        builder: (_, __) => const AdminUsersScreen(),
+                      ),
+                    ],
+                  ),
                   // Directory
                   GoRoute(
                     path: 'directory',
