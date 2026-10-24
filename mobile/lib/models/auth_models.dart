@@ -55,7 +55,7 @@ class UserPrincipal {
       permissions.contains(code) || permissions.contains('*');
 
   bool hasAnyPermission(Iterable<String> codes) =>
-      codes.any(permissions.contains);
+      permissions.contains('*') || codes.any(permissions.contains);
 
   String get initials {
     final parts = displayName

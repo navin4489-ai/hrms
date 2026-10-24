@@ -18,6 +18,7 @@ void main() {
 
       expect(user.hasPermission('employee.create'), isTrue);
       expect(user.hasPermission('admin.users'), isTrue);
+      expect(user.hasAnyPermission(['employee.create', 'admin.users']), isTrue);
     });
 
     test('regular permissions stay limited to the granted codes', () {
