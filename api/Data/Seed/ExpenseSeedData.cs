@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
+using System.Text;
 using Wintech.Hrms.Api.Common.Registration;
 using Wintech.Hrms.Api.Common.Time;
 using Wintech.Hrms.Api.Data;
@@ -93,7 +95,7 @@ public sealed class ExpenseSeedData : IDataSeeder
             ReceiptFileName = "team-lunch.pdf",
             ReceiptContentType = "application/pdf",
             ReceiptSizeBytes = 48_213,
-            ReceiptSha256 = "seed-approved-meals-0000000000000000000000000000000000000000000000000000"
+            ReceiptSha256 = SeedHash("approved-meals")
         };
         claims.Add(approvedMeals);
 
@@ -112,7 +114,7 @@ public sealed class ExpenseSeedData : IDataSeeder
             ReceiptFileName = "cab-receipt.pdf",
             ReceiptContentType = "application/pdf",
             ReceiptSizeBytes = 31_884,
-            ReceiptSha256 = "seed-pending-travel-00000000000000000000000000000000000000000000000000000"
+            ReceiptSha256 = SeedHash("pending-travel")
         };
         claims.Add(pendingTravel);
 
@@ -132,7 +134,7 @@ public sealed class ExpenseSeedData : IDataSeeder
             ReceiptFileName = "auto-ride.jpg",
             ReceiptContentType = "image/jpeg",
             ReceiptSizeBytes = 202_114,
-            ReceiptSha256 = "seed-rejected-transport-000000000000000000000000000000000000000000000000000"
+            ReceiptSha256 = SeedHash("rejected-transport")
         };
         claims.Add(rejectedTransport);
 
@@ -153,7 +155,7 @@ public sealed class ExpenseSeedData : IDataSeeder
             ReceiptFileName = "invoice-4471.pdf",
             ReceiptContentType = "application/pdf",
             ReceiptSizeBytes = 96_551,
-            ReceiptSha256 = "seed-paid-supplies-000000000000000000000000000000000000000000000000000000"
+            ReceiptSha256 = SeedHash("paid-supplies")
         };
         claims.Add(paidSupplies);
 
@@ -172,7 +174,7 @@ public sealed class ExpenseSeedData : IDataSeeder
             ReceiptFileName = "dinner-bill.pdf",
             ReceiptContentType = "application/pdf",
             ReceiptSizeBytes = 55_010,
-            ReceiptSha256 = "seed-manager-meals-000000000000000000000000000000000000000000000000000000"
+            ReceiptSha256 = SeedHash("manager-meals")
         };
         claims.Add(managerMeals);
 
@@ -274,4 +276,7 @@ public sealed class ExpenseSeedData : IDataSeeder
         _logger.LogInformation("Seeded {Claims} expense claims and {Travel} travel requests.",
             claims.Count, travel.Count);
     }
+
+    private static string SeedHash(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 }
