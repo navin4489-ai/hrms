@@ -214,7 +214,7 @@ public sealed class IdentityConfiguration :
         builder.Property(u => u.UserName).HasMaxLength(100).IsRequired();
         builder.HasIndex(u => u.UserName).IsUnique();
         builder.Property(u => u.Email).HasMaxLength(320);
-        builder.HasIndex(u => u.Email).IsUnique().HasFilter("[Email] IS NOT NULL");
+        builder.HasIndex(u => u.Email).IsUnique().HasFilter("\"Email\" IS NOT NULL");
         builder.Property(u => u.PasswordHash).HasMaxLength(500).IsRequired();
         builder.Property(u => u.MfaSecret).HasMaxLength(200);
         builder.HasIndex(u => u.EmployeeId);
