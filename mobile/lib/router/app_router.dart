@@ -3,10 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/announcements/announcement_detail_screen.dart';
+import '../features/announcements/create_announcement_screen.dart';
 import '../features/admin/admin_users_screen.dart';
 import '../features/admin/admin_system_screen.dart';
 import '../features/admin/admin_reports_screen.dart';
 import '../features/admin/admin_payroll_periods_screen.dart';
+import '../features/admin/admin_documents_screen.dart';
+import '../features/admin/admin_assets_screen.dart';
 import '../features/announcements/announcements_screen.dart';
 import '../features/approvals/approval_detail_screen.dart';
 import '../features/approvals/approvals_screen.dart';
@@ -121,6 +124,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                     builder: (_, __) => const AnnouncementsScreen(),
                     routes: [
                       GoRoute(
+                        path: 'new',
+                        builder: (_, __) => const CreateAnnouncementScreen(),
+                      ),
+                      GoRoute(
                         path: ':id',
                         builder: (_, state) => AnnouncementDetailScreen(
                           announcementId: state.pathParameters['id']!,
@@ -230,6 +237,14 @@ final routerProvider = Provider<GoRouter>((ref) {
                       GoRoute(
                         path: 'payroll-periods',
                         builder: (_, __) => const AdminPayrollPeriodsScreen(),
+                      ),
+                      GoRoute(
+                        path: 'documents',
+                        builder: (_, __) => const AdminDocumentsScreen(),
+                      ),
+                      GoRoute(
+                        path: 'assets',
+                        builder: (_, __) => const AdminAssetsScreen(),
                       ),
                     ],
                   ),

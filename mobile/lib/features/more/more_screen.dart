@@ -48,6 +48,9 @@ class MoreScreen extends ConsumerWidget {
     ]);
     final canViewReports = auth.hasPermission('report.view');
     final canManagePayroll = auth.hasPermission('payroll.manage');
+    final canCreateAnnouncement = auth.hasPermission('announcement.create');
+    final canManageDocuments = auth.hasPermission('document.manage');
+    final canManageAssets = auth.hasPermission('asset.manage');
 
     return AppScaffold(
       title: Strings.moreTitle,
@@ -114,7 +117,10 @@ class MoreScreen extends ConsumerWidget {
                 canManageUsers ||
                 canManageSystem ||
                 canViewReports ||
-                canManagePayroll) ...[
+                canManagePayroll ||
+                canCreateAnnouncement ||
+                canManageDocuments ||
+                canManageAssets) ...[
               const SizedBox(height: 12),
               SectionCard(
                 title: Strings.adminTools,
@@ -158,6 +164,24 @@ class MoreScreen extends ConsumerWidget {
                         icon: Icons.payments_outlined,
                         label: 'Payroll periods',
                         onTap: () => context.go('/more/admin/payroll-periods'),
+                      ),
+                    if (canCreateAnnouncement)
+                      _Tile(
+                        icon: Icons.campaign_outlined,
+                        label: 'Create announcement',
+                        onTap: () => context.go('/home/announcements/new'),
+                      ),
+                    if (canManageDocuments)
+                      _Tile(
+                        icon: Icons.verified_user_outlined,
+                        label: 'Document verification',
+                        onTap: () => context.go('/more/admin/documents'),
+                      ),
+                    if (canManageAssets)
+                      _Tile(
+                        icon: Icons.inventory_2_outlined,
+                        label: 'Asset inventory',
+                        onTap: () => context.go('/more/admin/assets'),
                       ),
                   ],
                 ),

@@ -40,6 +40,13 @@ class AnnouncementActions {
   /// `POST /announcements/{id}/acknowledge` -> 204 (409 if not required).
   Future<void> acknowledge(String id) =>
       _api.postEmpty('/announcements/$id/acknowledge');
+
+  /// `POST /announcements` -> draft (FR-ADM-130).
+  Future<Map<String, dynamic>> create(Map<String, dynamic> request) =>
+      _api.postMap('/announcements', data: request);
+
+  /// `POST /announcements/{id}/publish` -> publish and notify the audience.
+  Future<void> publish(String id) => _api.postMap('/announcements/$id/publish');
 }
 
 final announcementActionsProvider = Provider<AnnouncementActions>(

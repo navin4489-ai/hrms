@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/strings.dart';
 import '../../core/utils/formatters.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/announcements_provider.dart';
 import '../../widgets/app_scaffold.dart';
 import '../../widgets/async_body.dart';
@@ -34,9 +35,19 @@ class _AnnouncementsScreenState extends ConsumerState<AnnouncementsScreen> {
   @override
   Widget build(BuildContext context) {
     final announcements = ref.watch(announcementsProvider(_category));
+    final canCreate = ref
+        .watch(authStateProvider)
+        .hasPermission('announcement.create');
 
     return AppScaffold(
       title: Strings.announcementsTitle,
+      floatingActionButton: canCreate
+          ? FloatingActionButton.extended(
+              onPressed: () => context.push('/home/announcements/new'),
+              icon: const Icon(Icons.campaign_outlined),
+              label: const Text('Create announcement'),
+            )
+          : null,
       body: RefreshIndicator(
         onRefresh: () async => ref.invalidate(announcementsProvider(_category)),
         child: Column(
