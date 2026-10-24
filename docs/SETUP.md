@@ -8,14 +8,14 @@ Wintech HRMS solution described in the BRD.
 | Folder | Contents |
 |---|---|
 | `docs/` | Business + technical documentation. `API_CONTRACT.md` is the **single source of truth** for every endpoint, payload and error shape. |
-| `api/` | .NET 9 Web API (`Wintech.Hrms.Api`), SQL Server in production, SQLite for local development, InMemory fallback for tests. |
+| `api/` | .NET 9 Web API (`Wintech.Hrms.Api`), SQL Server/PostgreSQL in production, SQLite for local development, InMemory fallback for tests. |
 | `mobile/` | Flutter app (Android + iOS) built against `docs/API_CONTRACT.md`. |
 
 ## Prerequisites
 
 - .NET SDK 9.0+
 - Flutter 3.47+ (`flutter --version`)
-- For production runs: Microsoft SQL Server (LocalDB/Express/Container all fine)
+- For production runs: Microsoft SQL Server or PostgreSQL
 
 ## 1. Run the API
 
@@ -34,11 +34,12 @@ Development defaults (`appsettings.Development.json`):
 - Swagger UI: `http://localhost:5080/swagger`
 - Health: `GET http://localhost:5080/health`
 
-Production (SQL Server): set the environment to `Production` and provide
+Production (SQL Server or PostgreSQL): set the environment to `Production`, configure
+`Database__Provider` as `SqlServer` or `PostgreSql`, and provide a matching connection string:
 
 ```
-Database__Provider = SqlServer
-Database__ConnectionString = Server=...;Database=WintechHrms;User Id=...;Password=...;TrustServerCertificate=True
+Database__Provider = PostgreSql
+Database__ConnectionString = Host=...;Database=...;Username=...;Password=...;SSL Mode=Require
 ```
 
 ### Seeded demo users
@@ -104,18 +105,17 @@ cd mobile   && flutter analyze       # no issues found
 
 1. Push this project to a GitHub repository and connect that repository in Render.
 2. In Render, create a **Blueprint** and select `api/render.yaml` as the Blueprint file path.
-3. Supply `Database__ConnectionString` as a secret when prompted. Use an **Azure SQL** connection
-   string: Render does not provide SQL Server, and this project uses SQL Server for production.
+3. The Blueprint provisions Render Postgres and wires its internal connection string to the API.
 4. Render generates `Jwt__SigningKey` and `Security__SeedDemoPassword` for the service. The attached
    persistent disk stores private uploaded files at `/var/data/files`. Use the generated seed password
    for the initial accounts; `Passw0rd!` is Development-only.
 5. Wait for `GET https://<render-service>.onrender.com/health` to report `Healthy`.
 
-The Blueprint uses a paid `starter` Web Service and 1 GB persistent disk; Render's free services do
-not support persistent disks. Configure Azure SQL firewall/network access for the Render service.
-Do not use SQLite for production data. Keep the service private during initial setup, retrieve the
-generated bootstrap password from Render, and rotate or disable demo accounts before exposing the
-production URL.
+The database uses Render Postgres **Free**, which expires after 30 days; it is for a demo only and
+must not hold important HR data. The API Web Service and persistent file disk use their configured
+plans; review charges in Render before provisioning. Switch Postgres to a paid plan for durable data.
+Keep the service private during initial setup, retrieve the generated bootstrap password from Render,
+and rotate or disable demo accounts before exposing the service URL. Do not use SQLite for production.
 
 Build the Android release APK with the deployed API URL (without `/api/v1`):
 

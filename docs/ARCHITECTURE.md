@@ -83,8 +83,9 @@ Both are discovered through `IAppService`, so adding a slice/report is an additi
 
 - **Development**: SQLite file `api/App_Data/wintech-hrms.dev.db`, `EnsureCreated` + ordered seeders.
   Delete the file to rebuild schema and demo data.
-- **Production**: SQL Server with retry-on-failure; schema created from the model (or migrations when
-  the model stabilises). Queries stay provider-neutral (EF LINQ only).
+- **Production**: SQL Server or PostgreSQL with retry-on-failure; Render uses PostgreSQL. Schema is
+  created from the model (or migrations when the model stabilises). Queries stay provider-neutral
+  (EF LINQ only).
 - **Files** (avatars, receipts, letters) are stored under a private root with an extension allow-list
   and size cap (BR-010), streamed through an authenticated endpoint — never a public URL.
 - **PDF** (payslips, letters) is generated server-side with QuestPDF.

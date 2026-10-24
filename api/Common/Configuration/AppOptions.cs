@@ -22,8 +22,47 @@ public sealed class DatabaseOptions
     public bool ExitOnInitializationFailure { get; set; } = true;
 
     public bool IsSqlServer => string.Equals(Provider, "SqlServer", StringComparison.OrdinalIgnoreCase);
+    public bool IsPostgreSql => string.Equals(Provider, "PostgreSql", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(Provider, "Postgres", StringComparison.OrdinalIgnoreCase);
     public bool IsSqlite => string.Equals(Provider, "Sqlite", StringComparison.OrdinalIgnoreCase);
     public bool IsInMemory => string.Equals(Provider, "InMemory", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Render exposes Postgres credentials as a postgres:// URI. Convert that form to the
+    /// keyword/value connection string Npgsql expects; ordinary Npgsql connection strings pass through.
+    /// </summary>
+    public string ResolvePostgreSqlConnectionString()
+    {
+        if (string.IsNullOrWhiteSpace(ConnectionString))
+            throw new InvalidOperationException("Database:ConnectionString must be configured for PostgreSQL.");
+
+        if (!Uri.TryCreate(ConnectionString, UriKind.Absolute, out var uri) ||
+            (uri.Scheme is not ("postgres" or "postgresql")))
+            return ConnectionString;
+
+        var credentials = uri.UserInfo.Split(':', 2);
+        if (credentials.Length != 2 || string.IsNullOrWhiteSpace(uri.Host))
+            throw new InvalidOperationException("The PostgreSQL URI must contain a username and password.");
+
+        var sslMode = Npgsql.SslMode.Require;
+        var sslModePair = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(pair => pair.Split('=', 2))
+            .FirstOrDefault(pair => pair.Length == 2 &&
+                                    string.Equals(Uri.UnescapeDataString(pair[0]), "sslmode", StringComparison.OrdinalIgnoreCase));
+        if (sslModePair is not null && Enum.TryParse<Npgsql.SslMode>(Uri.UnescapeDataString(sslModePair[1]), true, out var parsedSslMode))
+            sslMode = parsedSslMode;
+
+        var builder = new Npgsql.NpgsqlConnectionStringBuilder
+        {
+            Host = uri.Host,
+            Port = uri.IsDefaultPort ? 5432 : uri.Port,
+            Database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/')),
+            Username = Uri.UnescapeDataString(credentials[0]),
+            Password = Uri.UnescapeDataString(credentials[1]),
+            SslMode = sslMode
+        };
+        return builder.ConnectionString;
+    }
 
     /// <summary>Returns the SQLite connection string with a fully qualified data source path.</summary>
     public string ResolveSqliteConnectionString(string contentRootPath)

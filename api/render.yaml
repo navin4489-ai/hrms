@@ -1,8 +1,6 @@
 # In Render, create a Blueprint and set its Blueprint file path to api/render.yaml.
-# Render does not offer SQL Server. Provide an Azure SQL connection string when creating
-# the Blueprint to preserve the BRD's SQL Server production requirement.
-# CoreSeeder currently creates documented demo accounts (Passw0rd!). Keep the first service
-# private/staging and rotate/disable those accounts before opening a production URL to users.
+# Render-managed Postgres is provisioned by this Blueprint. The free database expires after 30 days;
+# use it only for a demo and do not store important HR data in it.
 services:
   - type: web
     name: wintech-hrms-api
@@ -22,9 +20,11 @@ services:
       - key: ASPNETCORE_URLS
         value: http://0.0.0.0:10000
       - key: Database__Provider
-        value: SqlServer
+        value: PostgreSql
       - key: Database__ConnectionString
-        sync: false
+        fromDatabase:
+          name: wintech-hrms-db
+          property: connectionString
       - key: Database__Seed
         value: "true"
       - key: Database__ExitOnInitializationFailure
@@ -35,3 +35,12 @@ services:
         generateValue: true
       - key: Security__SeedDemoPassword
         generateValue: true
+
+databases:
+  - name: wintech-hrms-db
+    databaseName: wintech_hrms
+    user: wintech_hrms
+    plan: free
+    region: oregon
+    postgresMajorVersion: "18"
+    ipAllowList: []

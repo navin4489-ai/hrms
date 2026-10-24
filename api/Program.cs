@@ -46,6 +46,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     if (databaseOptions.IsSqlServer)
         options.UseSqlServer(databaseOptions.ConnectionString,
             sql => sql.EnableRetryOnFailure(maxRetryCount: 3, maxRetryDelay: TimeSpan.FromSeconds(5), errorNumbersToAdd: null));
+    else if (databaseOptions.IsPostgreSql)
+        options.UseNpgsql(databaseOptions.ResolvePostgreSqlConnectionString(),
+            postgres => postgres.EnableRetryOnFailure(maxRetryCount: 3, maxRetryDelay: TimeSpan.FromSeconds(5), errorCodesToAdd: null));
     else if (databaseOptions.IsSqlite)
         options.UseSqlite(databaseOptions.ResolveSqliteConnectionString(builder.Environment.ContentRootPath));
     else
