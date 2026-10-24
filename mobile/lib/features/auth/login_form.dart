@@ -12,15 +12,14 @@ class LoginCredentials {
   final String password;
 }
 
-/// Pure form widget for sign-in: client-side validation, demo-credentials
-/// chip, forgot-password link. The screen wires it to the auth controller.
+/// Pure form widget for sign-in: client-side validation, deployment credential
+/// guidance, and forgot-password link. The screen wires it to the auth controller.
 class LoginForm extends StatefulWidget {
   const LoginForm({
     super.key,
     required this.onSubmit,
     this.busy = false,
     this.onForgotPassword,
-    this.onUseDemo,
     this.errorText,
   });
 
@@ -29,8 +28,6 @@ class LoginForm extends StatefulWidget {
   final Future<void> Function(LoginCredentials credentials) onSubmit;
   final bool busy;
   final VoidCallback? onForgotPassword;
-  final VoidCallback? onUseDemo;
-
   /// Blocking/credential error shown above the button.
   final String? errorText;
 
@@ -63,15 +60,8 @@ class _LoginFormState extends State<LoginForm> {
     );
   }
 
-  void _useDemo() {
-    _usernameController.text = 'employee';
-    _passwordController.text = 'Passw0rd!';
-    setState(() {});
-  }
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Form(
       key: _formKey,
       autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -133,30 +123,12 @@ class _LoginFormState extends State<LoginForm> {
             busy: widget.busy,
             onPressed: widget.busy ? null : _submit,
           ),
-          const SizedBox(height: 16),
-          Center(
-            child: Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 8,
-              children: [
-                Text(
-                  Strings.demoHint,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: widget.busy
-                      ? null
-                      : (widget.onUseDemo ?? _useDemo),
-                  icon: const Icon(Icons.smart_toy_outlined, size: 16),
-                  label: const Text(Strings.demoUse),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: const Size(44, 36),
-                  ),
-                ),
-              ],
+          const SizedBox(height: 20),
+          Text(
+            Strings.loginCredentialHelp,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],

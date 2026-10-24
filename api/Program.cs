@@ -289,6 +289,7 @@ using (var scope = app.Services.CreateScope())
             {
                 await seeder.SeedAsync(CancellationToken.None);
             }
+            await AdminAccountBootstrapper.RunIfEnabledAsync(db, builder.Configuration, logger);
             logger.LogInformation("Database initialised ({Provider}) with {SeederCount} seeder pass(es).",
                 databaseOptions.Provider, seeders.Count());
         }

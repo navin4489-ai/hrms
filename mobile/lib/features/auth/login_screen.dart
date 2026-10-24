@@ -8,7 +8,7 @@ import '../../providers/auth_provider.dart';
 import '../../widgets/app_scaffold.dart';
 import 'login_form.dart';
 
-/// Sign-in screen (FR-EMP-001/006): username + password, demo hint,
+/// Sign-in screen (FR-EMP-001/006): username + password, credential guidance,
 /// session-expired banner, generic 401 message, MFA hand-off.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});

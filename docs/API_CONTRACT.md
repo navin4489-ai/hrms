@@ -53,7 +53,9 @@ Query paging params: `page` (default 1), `pageSize` (default 20, max 100). Searc
 
 ## 2. Demo users (seeded, company "Wintech Solutions Pvt Ltd")
 
-All passwords: `Passw0rd!` — login field `username` accepts username, work email, or employee number.
+Development seed passwords: `Passw0rd!`. Non-development deployments use the configured seed password
+or the one-time admin bootstrap described in `docs/SETUP.md`. Login field `username` accepts username,
+work email, or employee number.
 
 | username | employeeNo | name | role(s) | reports to |
 |---|---|---|---|---|

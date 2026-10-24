@@ -110,8 +110,18 @@ Postgres database per workspace.
 3. The Blueprint wires the existing database's internal connection string to the API; it does not
    create, modify, or delete the database resource.
 4. Render generates `Jwt__SigningKey` and `Security__SeedDemoPassword` for the service. Use the generated seed password
-   for the initial accounts; `Passw0rd!` is Development-only.
+    for the initial accounts; `Passw0rd!` is Development-only.
 5. Wait for `GET https://<render-service>.onrender.com/health` to report `Healthy`.
+
+### One-time admin login setup
+
+To replace the generated seeded admin login, first deploy the latest API code. In the Render service's
+Environment settings, add `Security__AdminBootstrapEnabled=true`, `Security__AdminBootstrapEmail` with
+the desired login email, and `Security__AdminBootstrapPassword` with a new unique password (at least
+12 characters, including letters and numbers). Save and deploy. The API updates the seeded `admin`
+account once, hashes the password, revokes existing sessions, and records a one-time marker in the
+`wintech_hrms` schema. After the logs confirm the bootstrap completed, remove all three temporary
+variables and deploy again. Never put the password in GitHub, app source, or the APK.
 
 The API uses Render **Free**, which may sleep when idle. The existing Free Postgres database expires
 on its own 30-day schedule; check its dashboard for the expiration date. The service has no persistent

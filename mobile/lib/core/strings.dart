@@ -42,8 +42,8 @@ abstract final class Strings {
   static const accountNotActiveTitle = 'Account not active';
   static const accountNotActiveDetail =
       'Your account has been suspended or terminated. Contact HR if you believe this is a mistake.';
-  static const demoHint = 'Demo: employee / Passw0rd!';
-  static const demoUse = 'Use demo credentials';
+  static const loginCredentialHelp =
+      'Use the username and password provided by your HRMS administrator.';
   static const mfaTitle = 'Two-factor verification';
   static const mfaSubtitle =
       'Enter the 6-digit code from your authenticator app.';

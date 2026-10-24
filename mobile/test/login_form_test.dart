@@ -12,7 +12,6 @@ Future<void> _pumpForm(
   bool busy = false,
   String? errorText,
   VoidCallback? onForgotPassword,
-  VoidCallback? onUseDemo,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -25,7 +24,6 @@ Future<void> _pumpForm(
               busy: busy,
               errorText: errorText,
               onForgotPassword: onForgotPassword,
-              onUseDemo: onUseDemo,
             ),
           ),
         ),
@@ -75,26 +73,12 @@ void main() {
     expect(captured!.password, 'Passw0rd!');
   });
 
-  testWidgets('demo chip fills the demo credentials', (tester) async {
-    LoginCredentials? captured;
-    await _pumpForm(tester, onSubmit: (creds) async => captured = creds);
+  testWidgets('shows administrator credential guidance instead of stale demo credentials', (tester) async {
+    await _pumpForm(tester, onSubmit: (_) async {});
 
-    await tester.tap(find.text(Strings.demoUse));
-    await tester.pump();
-    expect(
-      tester
-          .widgetList<TextFormField>(find.byType(TextFormField))
-          .first
-          .controller
-          ?.text,
-      'employee',
-    );
-
-    await tester.tap(find.text(Strings.signIn));
-    await tester.pumpAndSettle();
-
-    expect(captured?.username, 'employee');
-    expect(captured?.password, 'Passw0rd!');
+    expect(find.text(Strings.loginCredentialHelp), findsOneWidget);
+    expect(find.textContaining('Passw0rd!'), findsNothing);
+    expect(find.text('Use demo credentials'), findsNothing);
   });
 
   testWidgets('toggles password visibility', (tester) async {
