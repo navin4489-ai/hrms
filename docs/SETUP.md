@@ -123,6 +123,17 @@ account once, hashes the password, revokes existing sessions, and records a one-
 `wintech_hrms` schema. After the logs confirm the bootstrap completed, remove all three temporary
 variables and deploy again. Never put the password in GitHub, app source, or the APK.
 
+For test workspaces where the seeded admin is attached to a demo employee, the account can be moved
+to a separate profile without editing the seeded employee. The one-time profile bootstrap uses
+`Security__AdminProfileBootstrapEnabled=true`, `Security__AdminProfileBootstrapEmail`,
+`Security__AdminProfileBootstrapFirstName`, `Security__AdminProfileBootstrapUserName`, and
+`Security__AdminProfileBootstrapPassword`. It creates an active employee using the linked account's
+existing department, designation, location, employment type, and organization; assigns the next
+generated `EMP` number; preserves the SuperAdmin role; and revokes existing sessions. The password
+must be at least 12 characters and include letters and numbers. After logs confirm completion, remove
+all profile-bootstrap variables and deploy again. This operation is one-time and leaves the original
+demo employee untouched.
+
 The API uses Render **Free**, which may sleep when idle. The existing Free Postgres database expires
 on its own 30-day schedule; check its dashboard for the expiration date. The service has no persistent
 disk, so uploaded files are ephemeral and may disappear on restart. This is for a demo only; do not
