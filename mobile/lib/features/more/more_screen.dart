@@ -33,6 +33,13 @@ class MoreScreen extends ConsumerWidget {
     final user = auth.user;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final canManageEmployees = auth.hasAnyPermission([
+      'employee.view',
+      'employee.create',
+      'employee.edit',
+      'employee.manage',
+    ]);
+    final canCreateEmployee = auth.hasPermission('employee.create');
 
     return AppScaffold(
       title: Strings.moreTitle,
@@ -95,6 +102,31 @@ class MoreScreen extends ConsumerWidget {
                 ],
               ),
             ),
+            if (canManageEmployees) ...[
+              const SizedBox(height: 12),
+              SectionCard(
+                title: Strings.adminTools,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 12,
+                ),
+                child: Column(
+                  children: [
+                    _Tile(
+                      icon: Icons.manage_accounts_outlined,
+                      label: Strings.manageEmployees,
+                      onTap: () => context.go('/more/directory'),
+                    ),
+                    if (canCreateEmployee)
+                      _Tile(
+                        icon: Icons.person_add_alt_1_rounded,
+                        label: Strings.addEmployee,
+                        onTap: () => context.go('/more/directory/new'),
+                      ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             SectionCard(
               title: 'Documents & pay',

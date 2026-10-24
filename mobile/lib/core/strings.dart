@@ -182,6 +182,8 @@ abstract final class Strings {
   static const noEmployees = 'No employees found';
   static const addEmployee = 'Add employee';
   static const createEmployee = 'Create employee';
+  static const adminTools = 'Administration';
+  static const manageEmployees = 'Manage employees';
   static const employeeCreated = 'Employee added successfully';
   static const saving = 'Saving…';
   static const employeeNumberOptional = 'Employee number (optional)';
