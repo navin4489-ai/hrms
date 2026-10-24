@@ -1,19 +1,14 @@
-# In Render, create a Blueprint and set its Blueprint file path to api/render.yaml.
-# Render-managed Postgres is provisioned by this Blueprint. The free database expires after 30 days;
-# use it only for a demo and do not store important HR data in it.
+# Render Blueprint. Both the web service and database use Free plans for this demo.
+# Free Postgres expires after 30 days; do not store important HR data here.
 services:
   - type: web
     name: wintech-hrms-api
     runtime: docker
-    plan: starter
+    plan: free
     region: oregon
     dockerfilePath: api/Dockerfile
     dockerContext: api
     healthCheckPath: /health
-    disk:
-      name: wintech-hrms-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
@@ -30,7 +25,7 @@ services:
       - key: Database__ExitOnInitializationFailure
         value: "true"
       - key: FileStorage__Root
-        value: /var/data/files
+        value: /tmp/wintech-hrms-files
       - key: Jwt__SigningKey
         generateValue: true
       - key: Security__SeedDemoPassword

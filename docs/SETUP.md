@@ -101,21 +101,21 @@ cd mobile   && flutter analyze       # no issues found
 
 ## 4. Deploy the API to Render
 
-`api/render.yaml` defines a Docker Web Service. To deploy it:
+Root-level `render.yaml` defines the API and Render Postgres database. To deploy it:
 
 1. Push this project to a GitHub repository and connect that repository in Render.
-2. In Render, create a **Blueprint** and select `api/render.yaml` as the Blueprint file path.
+2. In Render, create a **Blueprint** for the repository; Render finds root-level `render.yaml`.
 3. The Blueprint provisions Render Postgres and wires its internal connection string to the API.
-4. Render generates `Jwt__SigningKey` and `Security__SeedDemoPassword` for the service. The attached
-   persistent disk stores private uploaded files at `/var/data/files`. Use the generated seed password
+4. Render generates `Jwt__SigningKey` and `Security__SeedDemoPassword` for the service. Use the generated seed password
    for the initial accounts; `Passw0rd!` is Development-only.
 5. Wait for `GET https://<render-service>.onrender.com/health` to report `Healthy`.
 
-The database uses Render Postgres **Free**, which expires after 30 days; it is for a demo only and
-must not hold important HR data. The API Web Service and persistent file disk use their configured
-plans; review charges in Render before provisioning. Switch Postgres to a paid plan for durable data.
-Keep the service private during initial setup, retrieve the generated bootstrap password from Render,
-and rotate or disable demo accounts before exposing the service URL. Do not use SQLite for production.
+Both the API Web Service and database use Render **Free** plans. Free Postgres expires after 30 days;
+free web services may sleep when idle. The service has no persistent disk, so uploaded files are
+ephemeral and may disappear on restart. This is for a demo only; do not store important HR data.
+Choose paid plans and persistent storage for ongoing use. Keep the service private during initial setup,
+retrieve the generated bootstrap password from Render, and rotate or disable demo accounts before
+exposing the service URL. Do not use SQLite for production.
 
 Build the Android release APK with the deployed API URL (without `/api/v1`):
 
