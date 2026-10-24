@@ -1,41 +1,37 @@
-# Render Blueprint. Both the web service and database use Free plans for this demo.
-# Free Postgres expires after 30 days; do not store important HR data here.
-services:
-  - type: web
-    name: wintech-hrms-api
-    runtime: docker
-    plan: free
-    region: oregon
-    dockerfilePath: api/Dockerfile
-    dockerContext: api
-    healthCheckPath: /health
-    envVars:
-      - key: ASPNETCORE_ENVIRONMENT
-        value: Production
-      - key: ASPNETCORE_URLS
-        value: http://0.0.0.0:10000
-      - key: Database__Provider
-        value: PostgreSql
-      - key: Database__ConnectionString
-        fromDatabase:
-          name: wintech-hrms-db
-          property: connectionString
-      - key: Database__Seed
-        value: "true"
-      - key: Database__ExitOnInitializationFailure
-        value: "true"
-      - key: FileStorage__Root
-        value: /tmp/wintech-hrms-files
-      - key: Jwt__SigningKey
-        generateValue: true
-      - key: Security__SeedDemoPassword
-        generateValue: true
-
-databases:
-  - name: wintech-hrms-db
-    databaseName: wintech_hrms
-    user: wintech_hrms
-    plan: free
-    region: oregon
-    postgresMajorVersion: "18"
-    ipAllowList: []
+# Render Blueprint for the existing HRMS project. Reuses the workspace's free ayushield-db
+# in a separate wintech_hrms schema because Render allows only one active free Postgres DB.
+# The shared DB's 30-day expiration applies; this is demo-only.
+projects:
+  - name: HRMS
+    environments:
+      - name: Production
+        services:
+          - type: web
+            name: wintech-hrms-api
+            runtime: docker
+            plan: free
+            region: oregon
+            dockerfilePath: api/Dockerfile
+            dockerContext: api
+            healthCheckPath: /health
+            envVars:
+              - key: ASPNETCORE_ENVIRONMENT
+                value: Production
+              - key: ASPNETCORE_URLS
+                value: http://0.0.0.0:10000
+              - key: Database__Provider
+                value: PostgreSql
+              - key: Database__ConnectionString
+                fromDatabase:
+                  name: ayushield-db
+                  property: connectionString
+              - key: Database__Seed
+                value: "true"
+              - key: Database__ExitOnInitializationFailure
+                value: "true"
+              - key: FileStorage__Root
+                value: /tmp/wintech-hrms-files
+              - key: Jwt__SigningKey
+                generateValue: true
+              - key: Security__SeedDemoPassword
+                generateValue: true

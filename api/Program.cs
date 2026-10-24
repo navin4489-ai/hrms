@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Wintech.Hrms.Api.Common.Auditing;
@@ -249,7 +251,28 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        if (db.Database.IsRelational() && (await db.Database.GetPendingMigrationsAsync()).Any())
+        if (databaseOptions.IsPostgreSql)
+        {
+            const string schema = "wintech_hrms";
+            await db.Database.ExecuteSqlRawAsync($"CREATE SCHEMA IF NOT EXISTS \"{schema}\"");
+            await db.Database.OpenConnectionAsync();
+            try
+            {
+                await using var command = db.Database.GetDbConnection().CreateCommand();
+                command.CommandText = "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'wintech_hrms' AND table_name = 'Organizations')";
+                var schemaInitialized = (bool)(await command.ExecuteScalarAsync() ?? false);
+                if (!schemaInitialized)
+                {
+                    await db.GetService<IRelationalDatabaseCreator>().CreateTablesAsync(CancellationToken.None);
+                    logger.LogInformation("Created HRMS tables in the isolated PostgreSQL schema {Schema}.", schema);
+                }
+            }
+            finally
+            {
+                await db.Database.CloseConnectionAsync();
+            }
+        }
+        else if (db.Database.IsRelational() && (await db.Database.GetPendingMigrationsAsync()).Any())
             await db.Database.MigrateAsync();
         else
             await db.Database.EnsureCreatedAsync();

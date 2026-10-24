@@ -49,6 +49,11 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        // The Render demo shares the workspace's existing free Postgres database; keep all HRMS
+        // tables isolated from other applications in their own schema.
+        if (string.Equals(Database.ProviderName, "Npgsql.EntityFrameworkCore.PostgreSQL", StringComparison.Ordinal))
+            modelBuilder.HasDefaultSchema("wintech_hrms");
+
         // 1) Auto-discover feature-module entities so modules can grow without touching this file.
         var domainEntities = typeof(AppDbContext).Assembly.GetTypes()
             .Where(t => t.IsClass && !t.IsAbstract && !t.IsGenericTypeDefinition && !t.IsAbstract)
