@@ -1,0 +1,37 @@
+# In Render, create a Blueprint and set its Blueprint file path to api/render.yaml.
+# Render does not offer SQL Server. Provide an Azure SQL connection string when creating
+# the Blueprint to preserve the BRD's SQL Server production requirement.
+# CoreSeeder currently creates documented demo accounts (Passw0rd!). Keep the first service
+# private/staging and rotate/disable those accounts before opening a production URL to users.
+services:
+  - type: web
+    name: wintech-hrms-api
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerfilePath: api/Dockerfile
+    dockerContext: api
+    healthCheckPath: /health
+    disk:
+      name: wintech-hrms-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://0.0.0.0:10000
+      - key: Database__Provider
+        value: SqlServer
+      - key: Database__ConnectionString
+        sync: false
+      - key: Database__Seed
+        value: "true"
+      - key: Database__ExitOnInitializationFailure
+        value: "true"
+      - key: FileStorage__Root
+        value: /var/data/files
+      - key: Jwt__SigningKey
+        generateValue: true
+      - key: Security__SeedDemoPassword
+        generateValue: true

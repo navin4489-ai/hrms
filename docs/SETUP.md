@@ -1,0 +1,128 @@
+# Wintech HRMS — local setup
+
+End-to-end instructions for running the API (.NET 9) and the mobile app (Flutter) that make up the
+Wintech HRMS solution described in the BRD.
+
+## Repository layout
+
+| Folder | Contents |
+|---|---|
+| `docs/` | Business + technical documentation. `API_CONTRACT.md` is the **single source of truth** for every endpoint, payload and error shape. |
+| `api/` | .NET 9 Web API (`Wintech.Hrms.Api`), SQL Server in production, SQLite for local development, InMemory fallback for tests. |
+| `mobile/` | Flutter app (Android + iOS) built against `docs/API_CONTRACT.md`. |
+
+## Prerequisites
+
+- .NET SDK 9.0+
+- Flutter 3.47+ (`flutter --version`)
+- For production runs: Microsoft SQL Server (LocalDB/Express/Container all fine)
+
+## 1. Run the API
+
+```powershell
+cd api
+dotnet build
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
+dotnet run
+```
+
+Development defaults (`appsettings.Development.json`):
+
+- URL: `http://localhost:5080` (override with `ASPNETCORE_URLS`)
+- Database: SQLite file `api/App_Data/wintech-hrms.dev.db`, created and seeded on first start.
+  Delete the file to re-create the schema and re-run the seeders.
+- Swagger UI: `http://localhost:5080/swagger`
+- Health: `GET http://localhost:5080/health`
+
+Production (SQL Server): set the environment to `Production` and provide
+
+```
+Database__Provider = SqlServer
+Database__ConnectionString = Server=...;Database=WintechHrms;User Id=...;Password=...;TrustServerCertificate=True
+```
+
+### Seeded demo users
+
+All demo accounts use the password **`Passw0rd!`** (company: *Wintech Solutions Pvt Ltd*):
+
+| Username | Role | Typical use |
+|---|---|---|
+| `admin` | SuperAdmin | Everything, including admin & audit screens |
+| `hr` | HRExecutive | Employee records, documents, HR cases |
+| `hrexec` | HRHead | HR-wide access, dashboards, restricted cases |
+| `manager` | LineManager | Approvals for direct reports |
+| `payroll` | PayrollFinance | Payroll periods, payslips, reimbursements |
+| `employee` | Employee | Self-service (attendance, leave, payslips, cases) |
+| `employee2` | Employee | Second employee (peer/team views) |
+| `auditor` | Auditor | Read-only audit log and reports |
+
+```powershell
+Invoke-RestMethod -Uri 'http://localhost:5080/api/v1/auth/login' -Method Post `
+  -ContentType 'application/json' -Body '{"username":"admin","password":"Passw0rd!"}'
+```
+
+### Error envelope
+
+Every non-2xx response is:
+
+```json
+{ "status": 404, "title": "Not found", "detail": null, "errors": null, "correlationId": "…" }
+```
+
+`422` responses carry a field map in `errors`, `401` anywhere means "clear tokens, back to login",
+`429` carries `Retry-After` (see `docs/API_CONTRACT.md` §20).
+
+## 2. Run the mobile app
+
+```powershell
+cd mobile
+flutter pub get
+flutter analyze
+flutter test
+flutter run          # emulator or device with the API reachable
+```
+
+The API base URL is injected at compile time via `--dart-define`
+(`mobile/lib/core/config/env.dart`, default `http://localhost:5080`):
+
+```powershell
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:5080   # Android emulator
+flutter run --dart-define=API_BASE_URL=http://localhost:5080   # iOS simulator / desktop
+```
+
+## 3. Verify a fresh checkout
+
+```powershell
+cd api      && dotnet build          # 0 errors
+cd mobile   && flutter analyze       # no issues found
+            && flutter test          # all tests pass
+```
+
+## 4. Deploy the API to Render
+
+`api/render.yaml` defines a Docker Web Service. To deploy it:
+
+1. Push this project to a GitHub repository and connect that repository in Render.
+2. In Render, create a **Blueprint** and select `api/render.yaml` as the Blueprint file path.
+3. Supply `Database__ConnectionString` as a secret when prompted. Use an **Azure SQL** connection
+   string: Render does not provide SQL Server, and this project uses SQL Server for production.
+4. Render generates `Jwt__SigningKey` and `Security__SeedDemoPassword` for the service. The attached
+   persistent disk stores private uploaded files at `/var/data/files`. Use the generated seed password
+   for the initial accounts; `Passw0rd!` is Development-only.
+5. Wait for `GET https://<render-service>.onrender.com/health` to report `Healthy`.
+
+The Blueprint uses a paid `starter` Web Service and 1 GB persistent disk; Render's free services do
+not support persistent disks. Configure Azure SQL firewall/network access for the Render service.
+Do not use SQLite for production data. Keep the service private during initial setup, retrieve the
+generated bootstrap password from Render, and rotate or disable demo accounts before exposing the
+production URL.
+
+Build the Android release APK with the deployed API URL (without `/api/v1`):
+
+```powershell
+cd mobile
+flutter build apk --release `
+  --dart-define=API_BASE_URL=https://<render-service>.onrender.com
+```
+
+APK output: `mobile/build/app/outputs/flutter-apk/app-release.apk`.

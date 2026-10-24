@@ -1,0 +1,92 @@
+import 'common.dart';
+
+/// `GET /employees/directory` item — privacy-aware, minimal fields
+/// (FR-EMP-024).
+class DirectoryEntry {
+  const DirectoryEntry({
+    required this.employeeId,
+    required this.employeeNumber,
+    required this.displayName,
+    this.designation,
+    this.department,
+    this.location,
+    this.workEmail,
+    this.hasPhone = false,
+    this.avatarUrl,
+  });
+
+  factory DirectoryEntry.fromJson(Map<String, dynamic> json) => DirectoryEntry(
+    employeeId: JsonX.strOr(json['employeeId']),
+    employeeNumber: JsonX.strOr(json['employeeNumber']),
+    displayName: JsonX.strOr(json['displayName']),
+    designation: JsonX.str(json['designation']),
+    department: JsonX.str(json['department']),
+    location: JsonX.str(json['location']),
+    workEmail: JsonX.str(json['workEmail']),
+    hasPhone: JsonX.boolOr(json['hasPhone']),
+    avatarUrl: JsonX.str(json['avatarUrl']),
+  );
+
+  final String employeeId;
+  final String employeeNumber;
+  final String displayName;
+  final String? designation;
+  final String? department;
+  final String? location;
+  final String? workEmail;
+  final bool hasPhone;
+  final String? avatarUrl;
+
+  String get initials {
+    final parts = displayName
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty);
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) {
+      return parts.first.substring(0, 1).toUpperCase();
+    }
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
+        .toUpperCase();
+  }
+}
+
+/// `GET /org-units` item (used for department filters).
+class OrgUnit {
+  const OrgUnit({
+    required this.id,
+    required this.name,
+    this.code,
+    this.type,
+    this.status,
+  });
+
+  factory OrgUnit.fromJson(Map<String, dynamic> json) => OrgUnit(
+    id: JsonX.strOr(json['id']),
+    name: JsonX.strOr(json['name']),
+    code: JsonX.str(json['code']),
+    type: JsonX.str(json['type']),
+    status: JsonX.str(json['status']),
+  );
+
+  final String id;
+  final String name;
+  final String? code;
+  final String? type;
+  final String? status;
+}
+
+/// `GET /locations` item (used for location filters).
+class LocationEntry {
+  const LocationEntry({required this.id, required this.name, this.city});
+
+  factory LocationEntry.fromJson(Map<String, dynamic> json) => LocationEntry(
+    id: JsonX.strOr(json['id']),
+    name: JsonX.strOr(json['name']),
+    city: JsonX.str(json['city']),
+  );
+
+  final String id;
+  final String name;
+  final String? city;
+}

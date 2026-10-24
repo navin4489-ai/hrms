@@ -1,0 +1,40 @@
+# Environment files, local secrets, and machine-specific settings
+.env
+.env.*
+!.env.example
+**/secrets.json
+**/secrets.*.json
+**/appsettings.*.Local.json
+
+# .NET build and local data
+**/bin/
+**/obj/
+api/App_Data/
+*.user
+*.suo
+.vs/
+
+# Flutter / Dart build and package caches
+**/.dart_tool/
+**/.pub-cache/
+**/.pub/
+mobile/build/
+mobile/coverage/
+mobile/.flutter-plugins-dependencies
+mobile/android/local.properties
+mobile/ios/Flutter/Generated.xcconfig
+mobile/ios/Flutter/flutter_export_environment.sh
+mobile/ios/Flutter/ephemeral/
+
+# Android / Gradle generated state and signing files
+**/.gradle/
+**/key.properties
+**/*.keystore
+**/*.jks
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
