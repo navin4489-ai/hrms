@@ -24,6 +24,19 @@ certification or business acceptance. `Partial` means a useful subset exists, wi
 | ADM-140–144 | Partial | User account creation, employee linking, role/permission updates, suspension, session revocation and MFA endpoints exist. Temporary role grants/approvals, privileged-role MFA enforcement evidence and break-glass controls/alerts remain. |
 | ADM-150–155 | Partial | Audited report CSV export, audit log read, operations snapshot and background-job/notification summaries exist. XLSX/PDF, export preview/masking/approval, searchable audit filters, retention/archive and verified backup/restore controls remain. |
 
+## Multi-tenancy, collaboration and per-org configuration (post-BRD enhancements)
+
+| Capability | Status | Coverage |
+|---|---|---|
+| Multi-organization (tenancy) | Implemented | SuperAdmin creates/configures organizations (`/admin/organizations`). Enforced row-level isolation via a global EF query filter keyed on the request's org scope (`TenantResolutionMiddleware`); SuperAdmin crosses orgs (targets one with `X-Organization-Id`), everyone else is locked to their own org. Verified: a user in one org cannot see another org's employees/data. |
+| Per-org module flags | Implemented | SuperAdmin toggles modules per org (Attendance, Leave, Payroll, Documents, Assets, Expenses, Performance, Training, Helpdesk, Announcements, Chat, Calling). Apps read `/me/modules` and hide disabled features. |
+| Org-scoped employee codes | Implemented | New orgs issue org-prefixed codes (e.g. `ACME-EMP001`) sequenced per org; the demo org keeps legacy `EMP###`. Prefix/padding configurable per org. |
+| Roles | Implemented | Added `OrgAdmin` (full admin within one org) plus `admin.organizations`, `chat.use`, `call.use` permissions. SuperAdmin remains the tenant owner. |
+| Employee chat | Implemented | Direct + group conversations, text/image/file/voice-note messages (private file store, member-only download), read receipts and unread counts, group management. Real-time delivery over SignalR (`/hubs/chat`). Module- and permission-gated, org-scoped. |
+| Voice/video calling | Implemented | 1:1 WebRTC audio/video with SignalR signaling (offer/answer/ICE relay) and call history/missed-call records. STUN-based peer connectivity (TURN can be added for strict NATs). Module- and permission-gated. |
+| Legacy DB upgrade | Implemented | `TenantSchemaCompatibility` additively backfills `OrganizationId`, per-org indexes and the new config tables on existing SQLite/Postgres/SQL Server databases (important for the live Render DB). |
+
+
 ## External decisions / validation required
 
 - Payroll calculation and export format/provider (BRD R-02).
