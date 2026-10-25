@@ -25,6 +25,94 @@ public static class TenantSchemaCompatibility
             await EnsureSqlServerAsync(db, logger, cancellationToken);
 
         await BackfillOrgDefaultsAsync(db, logger, cancellationToken);
+        await EnsureChatTablesAsync(db, logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates the chat/calling tables on databases that predate those features. The production DB
+    /// was first created with EnsureCreated before the chat entities existed, and EnsureCreated does
+    /// not add new tables to an existing database, so <c>/chat/*</c> queries fail with 500 until the
+    /// tables exist. Idempotent: uses CREATE TABLE IF NOT EXISTS. Provider-aware.
+    /// </summary>
+    private static async Task EnsureChatTablesAsync(AppDbContext db, ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var provider = db.Database.ProviderName;
+        var isPg = string.Equals(provider, "Npgsql.EntityFrameworkCore.PostgreSQL", StringComparison.Ordinal);
+        var isSqlite = string.Equals(provider, "Microsoft.EntityFrameworkCore.Sqlite", StringComparison.Ordinal);
+        var isSqlServer = string.Equals(provider, "Microsoft.EntityFrameworkCore.SqlServer", StringComparison.Ordinal);
+        if (!isPg && !isSqlite && !isSqlServer) return;
+
+        // Column type map per provider.
+        string guid = isPg ? "uuid" : isSqlite ? "TEXT" : "uniqueidentifier";
+        string text = isPg ? "text" : isSqlite ? "TEXT" : "nvarchar(max)";
+        string vc(int n) => isPg ? $"character varying({n})" : isSqlite ? "TEXT" : $"nvarchar({n})";
+        string boolean = isPg ? "boolean" : isSqlite ? "INTEGER" : "bit";
+        string integer = isPg ? "integer" : isSqlite ? "INTEGER" : "int";
+        string bigint = isPg ? "bigint" : isSqlite ? "INTEGER" : "bigint";
+        string ts = isPg ? "timestamp with time zone" : isSqlite ? "TEXT" : "datetime2";
+        string pfx = isPg ? "\"wintech_hrms\"." : string.Empty;
+
+        async Task Exec(string sql)
+        {
+            try { await db.Database.ExecuteSqlRawAsync(sql, cancellationToken); }
+            catch (Exception ex) { logger.LogWarning(ex, "Chat table DDL skipped/failed: {Sql}", sql.Split('\n')[0]); }
+        }
+
+        string ine = isSqlServer ? "" : "IF NOT EXISTS ";
+        // SQL Server lacks CREATE TABLE IF NOT EXISTS; guard with OBJECT_ID.
+        async Task CreateTable(string name, string body)
+        {
+            if (isSqlServer)
+                await Exec($"IF OBJECT_ID(N'{name}', N'U') IS NULL CREATE TABLE [{name}] ({body});");
+            else
+                await Exec($"CREATE TABLE {ine}{pfx}\"{name}\" ({body})");
+        }
+        async Task CreateIndex(string idx, string table, string cols, bool unique = false)
+        {
+            var u = unique ? "UNIQUE " : "";
+            if (isSqlServer)
+                await Exec($"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name=N'{idx}') CREATE {u}INDEX [{idx}] ON [{table}] ({cols});");
+            else
+                await Exec($"CREATE {u}INDEX IF NOT EXISTS \"{idx}\" ON {pfx}\"{table}\" ({cols})");
+        }
+
+        await CreateTable("chat_conversations",
+            $"\"Id\" {guid} PRIMARY KEY, \"OrganizationId\" {guid} NOT NULL, \"Type\" {integer} NOT NULL, " +
+            $"\"Name\" {vc(200)} NULL, \"DirectKey\" {vc(100)} NULL, \"CreatedByEmployeeId\" {guid} NOT NULL, " +
+            $"\"CreatedAt\" {ts} NOT NULL, \"LastMessageAt\" {ts} NOT NULL, \"LastMessagePreview\" {vc(300)} NULL");
+        await CreateIndex("IX_chat_conversations_LastMessageAt", "chat_conversations", "\"LastMessageAt\"");
+
+        await CreateTable("chat_members",
+            $"\"Id\" {guid} PRIMARY KEY, \"OrganizationId\" {guid} NOT NULL, \"ConversationId\" {guid} NOT NULL, " +
+            $"\"EmployeeId\" {guid} NOT NULL, \"IsAdmin\" {boolean} NOT NULL, \"JoinedAt\" {ts} NOT NULL, " +
+            $"\"LeftAt\" {ts} NULL, \"LastReadAt\" {ts} NULL");
+        await CreateIndex("IX_chat_members_ConversationId_EmployeeId", "chat_members", "\"ConversationId\", \"EmployeeId\"", unique: true);
+        await CreateIndex("IX_chat_members_EmployeeId", "chat_members", "\"EmployeeId\"");
+
+        await CreateTable("chat_messages",
+            $"\"Id\" {guid} PRIMARY KEY, \"OrganizationId\" {guid} NOT NULL, \"ConversationId\" {guid} NOT NULL, " +
+            $"\"SenderEmployeeId\" {guid} NOT NULL, \"Kind\" {integer} NOT NULL, \"Body\" {vc(4000)} NULL, " +
+            $"\"AttachmentStorageKey\" {vc(400)} NULL, \"AttachmentFileName\" {vc(260)} NULL, " +
+            $"\"AttachmentContentType\" {vc(150)} NULL, \"AttachmentSize\" {bigint} NULL, " +
+            $"\"DurationSeconds\" {integer} NULL, \"CreatedAt\" {ts} NOT NULL, \"Deleted\" {boolean} NOT NULL");
+        await CreateIndex("IX_chat_messages_ConversationId_CreatedAt", "chat_messages", "\"ConversationId\", \"CreatedAt\"");
+
+        await CreateTable("chat_calls",
+            $"\"Id\" {guid} PRIMARY KEY, \"OrganizationId\" {guid} NOT NULL, \"CallerEmployeeId\" {guid} NOT NULL, " +
+            $"\"CalleeEmployeeId\" {guid} NOT NULL, \"Kind\" {integer} NOT NULL, \"State\" {integer} NOT NULL, " +
+            $"\"StartedAt\" {ts} NOT NULL, \"AnsweredAt\" {ts} NULL, \"EndedAt\" {ts} NULL, \"DurationSeconds\" {integer} NULL");
+        await CreateIndex("IX_chat_calls_CalleeEmployeeId_State", "chat_calls", "\"CalleeEmployeeId\", \"State\"");
+        await CreateIndex("IX_chat_calls_StartedAt", "chat_calls", "\"StartedAt\"");
+
+        await CreateTable("chat_device_tokens",
+            $"\"Id\" {guid} PRIMARY KEY, \"OrganizationId\" {guid} NOT NULL, \"EmployeeId\" {guid} NOT NULL, " +
+            $"\"Token\" {vc(400)} NOT NULL, \"Platform\" {vc(20)} NULL, \"UpdatedAt\" {ts} NOT NULL");
+        await CreateIndex("IX_chat_device_tokens_Token", "chat_device_tokens", "\"Token\"", unique: true);
+        await CreateIndex("IX_chat_device_tokens_EmployeeId", "chat_device_tokens", "\"EmployeeId\"");
+
+        _ = text;
+        logger.LogInformation("Verified chat/calling tables.");
     }
 
     /// <summary>
