@@ -40,38 +40,52 @@ public static class TenantSchemaCompatibility
             .ToListAsync(cancellationToken);
         if (orgs.Count == 0) return;
 
-        var existingModuleOrgIds = await db.Set<Domain.Organization.OrgModuleSetting>()
-            .IgnoreQueryFilters().AsNoTracking()
-            .Select(m => m.OrganizationId).Distinct().ToListAsync(cancellationToken);
-        var existingModuleSet = existingModuleOrgIds.ToHashSet();
+        // Load existing module rows (tracked) so we can fill gaps and force-enable collaboration.
+        var allModules = await db.Set<Domain.Organization.OrgModuleSetting>()
+            .IgnoreQueryFilters()
+            .ToListAsync(cancellationToken);
+        var modulesByOrg = allModules
+            .GroupBy(m => m.OrganizationId)
+            .ToDictionary(g => g.Key, g => g.ToList());
 
         var existingCodeOrgIds = await db.Set<Domain.Organization.OrgEmployeeCodeSetting>()
             .IgnoreQueryFilters().AsNoTracking()
             .Select(s => s.OrganizationId).ToListAsync(cancellationToken);
         var existingCodeSet = existingCodeOrgIds.ToHashSet();
 
-        var added = 0;
+        var touched = 0;
         foreach (var org in orgs)
         {
-            if (!existingModuleSet.Contains(org.Id))
+            var rows = modulesByOrg.GetValueOrDefault(org.Id) ?? new List<Domain.Organization.OrgModuleSetting>();
+            var byKey = rows.ToDictionary(m => m.ModuleKey, m => m, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var key in OrgModules.AllKeys)
             {
-                foreach (var key in OrgModules.AllKeys)
+                // Chat + Calling are force-enabled on every existing tenant after upgrade;
+                // other modules keep their value, defaulting to the module default when missing.
+                var forceOn = key == OrgModules.Chat || key == OrgModules.Calling;
+
+                if (byKey.TryGetValue(key, out var row))
                 {
-                    // Enable the module defaults, and additionally enable Chat + Calling so the
-                    // collaboration features are available to existing tenants after upgrade.
-                    var enabled = OrgModules.DefaultFor(key)
-                        || key == OrgModules.Chat
-                        || key == OrgModules.Calling;
+                    if (forceOn && !row.Enabled)
+                    {
+                        row.Enabled = true;
+                        row.UpdatedAt = DateTime.UtcNow;
+                        touched++;
+                    }
+                }
+                else
+                {
                     db.Add(new Domain.Organization.OrgModuleSetting
                     {
                         Id = Guid.NewGuid(),
                         OrganizationId = org.Id,
                         ModuleKey = key,
-                        Enabled = enabled,
+                        Enabled = forceOn || OrgModules.DefaultFor(key),
                         UpdatedAt = DateTime.UtcNow
                     });
+                    touched++;
                 }
-                added++;
             }
 
             if (!existingCodeSet.Contains(org.Id))
@@ -86,13 +100,14 @@ public static class TenantSchemaCompatibility
                     Padding = 3,
                     NextSequence = 1
                 });
+                touched++;
             }
         }
 
         if (db.ChangeTracker.HasChanges())
         {
             await db.SaveChangesAsync(cancellationToken);
-            logger.LogInformation("Backfilled per-org module/code settings for {Count} organization(s).", added);
+            logger.LogInformation("Backfilled/updated per-org module/code settings ({Count} change(s)).", touched);
         }
     }
 
