@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/notifications_provider.dart';
-import '../router/app_router.dart';
 
 /// App-bar notifications bell with an unread-count badge.
 /// Tapping opens the notification inbox (deep links resolve inside it).

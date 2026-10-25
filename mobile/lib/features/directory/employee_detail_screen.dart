@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/strings.dart';
 import '../../core/utils/formatters.dart';
 import '../../providers/api_provider.dart';
@@ -13,14 +14,30 @@ import '../../widgets/status_chip.dart';
 
 /// Employee record (own profile or `employee.view` scope). The server only
 /// returns fields the caller may see (FR-EMP-024 privacy rules).
-class EmployeeDetailScreen extends ConsumerWidget {
+class EmployeeDetailScreen extends ConsumerStatefulWidget {
   const EmployeeDetailScreen({super.key, required this.employeeId});
 
   final String employeeId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final detail = ref.watch(employeeDetailProvider(employeeId));
+  ConsumerState<EmployeeDetailScreen> createState() =>
+      _EmployeeDetailScreenState();
+}
+
+class _EmployeeDetailScreenState extends ConsumerState<EmployeeDetailScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(authControllerProvider.notifier).refreshCurrentUser();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final detail = ref.watch(employeeDetailProvider(widget.employeeId));
     final theme = Theme.of(context);
     final auth = ref.watch(authStateProvider);
     final canEdit = auth.hasPermission('employee.edit');
@@ -57,10 +74,11 @@ class EmployeeDetailScreen extends ConsumerWidget {
       ],
       body: RefreshIndicator(
         onRefresh: () async =>
-            ref.invalidate(employeeDetailProvider(employeeId)),
+            ref.invalidate(employeeDetailProvider(widget.employeeId)),
         child: AsyncBody(
           value: detail,
-          onRetry: () => ref.invalidate(employeeDetailProvider(employeeId)),
+          onRetry: () =>
+              ref.invalidate(employeeDetailProvider(widget.employeeId)),
           builder: (profile) => SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(16),
@@ -188,7 +206,20 @@ Future<void> _editEmployee(
   WidgetRef ref,
   dynamic profile,
 ) async {
-  final options = await ref.read(employeeCreateOptionsProvider.future);
+  late final EmployeeCreateOptions options;
+  try {
+    options = await ref.read(employeeCreateOptionsProvider.future);
+  } catch (error) {
+    if (context.mounted) {
+      final message = error is ApiException ? error.message : error.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not load employee edit options: $message'),
+        ),
+      );
+    }
+    return;
+  }
   if (!context.mounted) return;
   final nameParts = profile.displayName.trim().split(RegExp(r'\s+'));
   final firstName = TextEditingController(text: nameParts.firstOrNull ?? '');
@@ -256,6 +287,16 @@ Future<void> _editEmployee(
                         value: null,
                         child: Text('Unassigned'),
                       ),
+                      if (departmentId != null &&
+                          !options.departments.any(
+                            (item) => item.id == departmentId,
+                          ))
+                        DropdownMenuItem<String?>(
+                          value: departmentId,
+                          child: Text(
+                            profile.department ?? 'Current department',
+                          ),
+                        ),
                       for (final item in options.departments)
                         DropdownMenuItem<String?>(
                           value: item.id,
@@ -276,6 +317,14 @@ Future<void> _editEmployee(
                         value: null,
                         child: Text('Unassigned'),
                       ),
+                      if (locationId != null &&
+                          !options.locations.any(
+                            (item) => item.id == locationId,
+                          ))
+                        DropdownMenuItem<String?>(
+                          value: locationId,
+                          child: Text(profile.location ?? 'Current location'),
+                        ),
                       for (final item in options.locations)
                         DropdownMenuItem<String?>(
                           value: item.id,
@@ -316,6 +365,14 @@ Future<void> _editEmployee(
                         value: null,
                         child: Text('No manager'),
                       ),
+                      if (managerId != null &&
+                          !options.managers.any(
+                            (item) => item.employeeId == managerId,
+                          ))
+                        DropdownMenuItem<String?>(
+                          value: managerId,
+                          child: Text(profile.managerName ?? 'Current manager'),
+                        ),
                       for (final item in options.managers.where(
                         (item) => item.employeeId != profile.employeeId,
                       ))
@@ -405,13 +462,18 @@ Future<void> _editEmployee(
               'lastName': lastName.text.trim(),
               'workEmail': email.text.trim(),
               if (phone.text.trim().isNotEmpty) 'phone': phone.text.trim(),
+              'clearPhone': phone.text.trim().isEmpty && profile.phone != null,
               if (departmentId != null) 'departmentId': departmentId,
               if (locationId != null) 'locationId': locationId,
               if (designationId != null) 'designationId': designationId,
               'managerId': managerId,
+              'clearManager':
+                  managerId == null && profile.managerEmployeeId != null,
               'employmentType': employmentType,
               if (costCentre.text.trim().isNotEmpty)
                 'costCentre': costCentre.text.trim(),
+              'clearCostCentre':
+                  costCentre.text.trim().isEmpty && profile.costCentre != null,
               'effectiveDate': effectiveDate.text.trim(),
               'reason': reason.text.trim(),
             },
@@ -424,10 +486,14 @@ Future<void> _editEmployee(
         );
       }
     } catch (error) {
-      if (context.mounted)
+      if (context.mounted) {
+        final message = error is ApiException
+            ? error.message
+            : error.toString();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Employee update failed: $error')),
+          SnackBar(content: Text('Employee update failed: $message')),
         );
+      }
     }
   }
   for (final controller in [

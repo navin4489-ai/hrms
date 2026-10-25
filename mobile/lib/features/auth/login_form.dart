@@ -28,6 +28,7 @@ class LoginForm extends StatefulWidget {
   final Future<void> Function(LoginCredentials credentials) onSubmit;
   final bool busy;
   final VoidCallback? onForgotPassword;
+
   /// Blocking/credential error shown above the button.
   final String? errorText;
 

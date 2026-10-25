@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/strings.dart';
 import '../../providers/api_provider.dart';
 import '../../providers/leave_provider.dart';
@@ -61,110 +62,172 @@ class _LeaveTypesTab extends ConsumerWidget {
     var halfDay = current?['allowsHalfDay'] == true;
     var active = current?['isActive'] != false;
     final formKey = GlobalKey<FormState>();
+    var saving = false;
+    String? formError;
+    Map<String, String> fieldErrors = {};
     final saved = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setState) => AlertDialog(
-          title: Text(current == null ? 'Add leave type' : 'Edit leave type'),
-          content: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _requiredField(code, 'Code'),
-                  _requiredField(name, 'Name'),
-                  _requiredField(unit, 'Unit'),
-                  TextFormField(
-                    controller: maxDays,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Max consecutive days (optional)',
+        builder: (dialogContext, setDialogState) {
+          Future<void> save() async {
+            if (!(formKey.currentState?.validate() ?? false)) return;
+            setDialogState(() {
+              saving = true;
+              formError = null;
+              fieldErrors = {};
+            });
+            try {
+              final data = {
+                'code': code.text.trim(),
+                'name': name.text.trim(),
+                'unit': unit.text.trim(),
+                'maxConsecutiveDays': int.tryParse(maxDays.text.trim()),
+                'displayOrder': int.tryParse(order.text.trim()) ?? 0,
+                'isPaid': isPaid,
+                'requiresAttachment': attachment,
+                'allowsHalfDay': halfDay,
+                'isActive': active,
+              };
+              final api = ref.read(apiClientProvider);
+              if (current == null) {
+                await api.postMap('/admin/leave-types', data: data);
+              } else {
+                await api.putMap(
+                  '/admin/leave-types/${current['id']}',
+                  data: data,
+                );
+              }
+              if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+            } on ApiException catch (error) {
+              setDialogState(() {
+                fieldErrors = _fieldErrorsFrom(error);
+                formError = error.errors.isEmpty ? error.message : error.detail;
+                saving = false;
+              });
+            } catch (error) {
+              setDialogState(() {
+                formError = 'Could not save leave type: $error';
+                saving = false;
+              });
+            }
+          }
+
+          return AlertDialog(
+            title: Text(current == null ? 'Add leave type' : 'Edit leave type'),
+            content: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (formError != null) _formError(formError!),
+                    _requiredField(
+                      code,
+                      'Code',
+                      errorText: _fieldError(fieldErrors, 'code'),
                     ),
-                  ),
-                  TextFormField(
-                    controller: order,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Display order',
+                    _requiredField(
+                      name,
+                      'Name',
+                      errorText: _fieldError(fieldErrors, 'name'),
                     ),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Paid leave'),
-                    value: isPaid,
-                    onChanged: (value) => setState(() => isPaid = value),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Requires attachment'),
-                    value: attachment,
-                    onChanged: (value) => setState(() => attachment = value),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Allows half day'),
-                    value: halfDay,
-                    onChanged: (value) => setState(() => halfDay = value),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Active'),
-                    value: active,
-                    onChanged: (value) => setState(() => active = value),
-                  ),
-                ],
+                    _requiredField(
+                      unit,
+                      'Unit',
+                      errorText: _fieldError(fieldErrors, 'unit'),
+                    ),
+                    TextFormField(
+                      controller: maxDays,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'Max consecutive days (optional)',
+                        errorText: _fieldError(
+                          fieldErrors,
+                          'maxConsecutiveDays',
+                        ),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) return null;
+                        final days = int.tryParse(value.trim());
+                        return days == null || days < 1 || days > 365
+                            ? 'Enter a whole number from 1 to 365.'
+                            : null;
+                      },
+                    ),
+                    TextFormField(
+                      controller: order,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'Display order',
+                        errorText: _fieldError(fieldErrors, 'displayOrder'),
+                      ),
+                      validator: (value) => int.tryParse(value ?? '') == null
+                          ? 'Enter a whole number.'
+                          : null,
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Paid leave'),
+                      value: isPaid,
+                      onChanged: saving
+                          ? null
+                          : (value) => setDialogState(() => isPaid = value),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Requires attachment'),
+                      value: attachment,
+                      onChanged: saving
+                          ? null
+                          : (value) => setDialogState(() => attachment = value),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Allows half day'),
+                      value: halfDay,
+                      onChanged: saving
+                          ? null
+                          : (value) => setDialogState(() => halfDay = value),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Active'),
+                      value: active,
+                      onChanged: saving
+                          ? null
+                          : (value) => setDialogState(() => active = value),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text(Strings.cancel),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (formKey.currentState?.validate() ?? false)
-                  Navigator.pop(dialogContext, true);
-              },
-              child: const Text(Strings.save),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(dialogContext),
+                child: const Text(Strings.cancel),
+              ),
+              FilledButton(
+                onPressed: saving ? null : save,
+                child: saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text(Strings.save),
+              ),
+            ],
+          );
+        },
       ),
     );
     if (saved == true && context.mounted) {
-      try {
-        final data = {
-          'code': code.text.trim(),
-          'name': name.text.trim(),
-          'unit': unit.text.trim(),
-          'maxConsecutiveDays': int.tryParse(maxDays.text.trim()),
-          'displayOrder': int.tryParse(order.text.trim()) ?? 0,
-          'isPaid': isPaid,
-          'requiresAttachment': attachment,
-          'allowsHalfDay': halfDay,
-          'isActive': active,
-        };
-        final api = ref.read(apiClientProvider);
-        if (current == null) {
-          await api.postMap('/admin/leave-types', data: data);
-        } else {
-          await api.putMap('/admin/leave-types/${current['id']}', data: data);
-        }
-        ref.invalidate(_adminLeaveTypesProvider);
-        ref.invalidate(_adminLeavePoliciesProvider);
-        ref.invalidate(leaveTypesProvider);
-        if (context.mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text(Strings.savedSuccessfully)),
-          );
-      } catch (error) {
-        if (context.mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Leave type update failed: $error')),
-          );
-      }
+      ref.invalidate(_adminLeaveTypesProvider);
+      ref.invalidate(_adminLeavePoliciesProvider);
+      ref.invalidate(leaveTypesProvider);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text(Strings.savedSuccessfully)));
     }
     for (final controller in [code, name, maxDays, unit, order]) {
       controller.dispose();
@@ -219,7 +282,20 @@ class _LeavePoliciesTab extends ConsumerWidget {
     WidgetRef ref, {
     Map<String, dynamic>? current,
   }) async {
-    final types = await ref.read(_adminLeaveTypesProvider.future);
+    late final List<dynamic> types;
+    try {
+      types = await ref.read(_adminLeaveTypesProvider.future);
+    } catch (error) {
+      if (context.mounted) {
+        final message = error is ApiException
+            ? error.message
+            : error.toString();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load leave types: $message')),
+        );
+      }
+      return;
+    }
     if (!context.mounted) return;
     final code = TextEditingController(
       text: current?['code']?.toString() ?? '',
@@ -245,144 +321,223 @@ class _LeavePoliciesTab extends ConsumerWidget {
     var attachment = current?['attachmentRequired'] == true;
     var active = current?['isActive'] != false;
     final formKey = GlobalKey<FormState>();
+    var saving = false;
+    String? formError;
+    Map<String, String> fieldErrors = {};
     final saved = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setState) => AlertDialog(
-          title: Text(
-            current == null ? 'Add leave policy' : 'Edit leave policy',
-          ),
-          content: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _requiredField(code, 'Policy code'),
-                  _requiredField(name, 'Policy name'),
-                  TextField(
-                    controller: description,
-                    decoration: const InputDecoration(labelText: 'Description'),
-                  ),
-                  DropdownButtonFormField<String?>(
-                    initialValue: leaveTypeId,
-                    decoration: const InputDecoration(labelText: 'Leave type'),
-                    items: [
-                      const DropdownMenuItem<String?>(
-                        value: null,
-                        child: Text('All leave types'),
-                      ),
-                      for (final raw in types.whereType<Map>())
-                        if (raw['isActive'] == true)
-                          DropdownMenuItem<String?>(
-                            value: raw['id']?.toString(),
-                            child: Text(raw['name'].toString()),
-                          ),
-                    ],
-                    onChanged: (value) => setState(() => leaveTypeId = value),
-                  ),
-                  DropdownButtonFormField<String>(
-                    initialValue: frequency,
-                    decoration: const InputDecoration(
-                      labelText: 'Accrual frequency',
+        builder: (dialogContext, setDialogState) {
+          Future<void> save() async {
+            if (!(formKey.currentState?.validate() ?? false)) return;
+            setDialogState(() {
+              saving = true;
+              formError = null;
+              fieldErrors = {};
+            });
+            try {
+              final data = {
+                'code': code.text.trim(),
+                'name': name.text.trim(),
+                'description': description.text.trim().isEmpty
+                    ? null
+                    : description.text.trim(),
+                'leaveTypeId': leaveTypeId,
+                'accrualFrequency': frequency,
+                'annualEntitlementDays':
+                    double.tryParse(annual.text.trim()) ?? 0,
+                'carryForwardMaxDays': double.tryParse(carry.text.trim()) ?? 0,
+                'noticeDays': int.tryParse(notice.text.trim()) ?? 0,
+                'negativeBalanceAllowed': negative,
+                'attachmentRequired': attachment,
+                'isActive': active,
+              };
+              final api = ref.read(apiClientProvider);
+              if (current == null) {
+                await api.postMap('/admin/leave-policies', data: data);
+              } else {
+                await api.putMap(
+                  '/admin/leave-policies/${current['id']}',
+                  data: data,
+                );
+              }
+              if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+            } on ApiException catch (error) {
+              setDialogState(() {
+                fieldErrors = _fieldErrorsFrom(error);
+                formError = error.errors.isEmpty ? error.message : error.detail;
+                saving = false;
+              });
+            } catch (error) {
+              setDialogState(() {
+                formError = 'Could not save leave policy: $error';
+                saving = false;
+              });
+            }
+          }
+
+          return AlertDialog(
+            title: Text(
+              current == null ? 'Add leave policy' : 'Edit leave policy',
+            ),
+            content: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (formError != null) _formError(formError!),
+                    _requiredField(
+                      code,
+                      'Policy code',
+                      errorText: _fieldError(fieldErrors, 'code'),
                     ),
-                    items: const [
-                      DropdownMenuItem(value: 'None', child: Text('None')),
-                      DropdownMenuItem(
-                        value: 'Monthly',
-                        child: Text('Monthly'),
+                    _requiredField(
+                      name,
+                      'Policy name',
+                      errorText: _fieldError(fieldErrors, 'name'),
+                    ),
+                    TextFormField(
+                      controller: description,
+                      maxLength: 500,
+                      decoration: InputDecoration(
+                        labelText: 'Description',
+                        errorText: _fieldError(fieldErrors, 'description'),
                       ),
-                      DropdownMenuItem(
-                        value: 'Quarterly',
-                        child: Text('Quarterly'),
+                      validator: (value) => value != null && value.length > 500
+                          ? 'Description must be 500 characters or fewer.'
+                          : null,
+                    ),
+                    DropdownButtonFormField<String?>(
+                      initialValue: leaveTypeId,
+                      decoration: InputDecoration(
+                        labelText: 'Leave type',
+                        errorText: _fieldError(fieldErrors, 'leaveTypeId'),
                       ),
-                      DropdownMenuItem(value: 'Annual', child: Text('Annual')),
-                      DropdownMenuItem(
-                        value: 'OnDemand',
-                        child: Text('On demand'),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('All leave types'),
+                        ),
+                        for (final raw in types.whereType<Map>())
+                          if (raw['isActive'] == true ||
+                              raw['id']?.toString() == leaveTypeId)
+                            DropdownMenuItem<String?>(
+                              value: raw['id']?.toString(),
+                              child: Text(raw['name'].toString()),
+                            ),
+                      ],
+                      onChanged: saving
+                          ? null
+                          : (value) =>
+                                setDialogState(() => leaveTypeId = value),
+                    ),
+                    DropdownButtonFormField<String>(
+                      initialValue: frequency,
+                      decoration: InputDecoration(
+                        labelText: 'Accrual frequency',
+                        errorText: _fieldError(fieldErrors, 'accrualFrequency'),
                       ),
-                    ],
-                    onChanged: (value) =>
-                        setState(() => frequency = value ?? frequency),
-                  ),
-                  _numberField(annual, 'Annual entitlement (days)'),
-                  _numberField(carry, 'Carry-forward maximum (days)'),
-                  _numberField(notice, 'Notice days', integer: true),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Allow negative balance'),
-                    value: negative,
-                    onChanged: (value) => setState(() => negative = value),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Require attachment'),
-                    value: attachment,
-                    onChanged: (value) => setState(() => attachment = value),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Active'),
-                    value: active,
-                    onChanged: (value) => setState(() => active = value),
-                  ),
-                ],
+                      items: const [
+                        DropdownMenuItem(value: 'None', child: Text('None')),
+                        DropdownMenuItem(
+                          value: 'Monthly',
+                          child: Text('Monthly'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Quarterly',
+                          child: Text('Quarterly'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Annual',
+                          child: Text('Annual'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'OnDemand',
+                          child: Text('On demand'),
+                        ),
+                      ],
+                      onChanged: saving
+                          ? null
+                          : (value) => setDialogState(
+                              () => frequency = value ?? frequency,
+                            ),
+                    ),
+                    _numberField(
+                      annual,
+                      'Annual entitlement (days)',
+                      errorText: _fieldError(
+                        fieldErrors,
+                        'annualEntitlementDays',
+                      ),
+                    ),
+                    _numberField(
+                      carry,
+                      'Carry-forward maximum (days)',
+                      errorText: _fieldError(
+                        fieldErrors,
+                        'carryForwardMaxDays',
+                      ),
+                    ),
+                    _numberField(
+                      notice,
+                      'Notice days',
+                      integer: true,
+                      errorText: _fieldError(fieldErrors, 'noticeDays'),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Allow negative balance'),
+                      value: negative,
+                      onChanged: saving
+                          ? null
+                          : (value) => setDialogState(() => negative = value),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Require attachment'),
+                      value: attachment,
+                      onChanged: saving
+                          ? null
+                          : (value) => setDialogState(() => attachment = value),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Active'),
+                      value: active,
+                      onChanged: saving
+                          ? null
+                          : (value) => setDialogState(() => active = value),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text(Strings.cancel),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (formKey.currentState?.validate() ?? false)
-                  Navigator.pop(dialogContext, true);
-              },
-              child: const Text(Strings.save),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(dialogContext),
+                child: const Text(Strings.cancel),
+              ),
+              FilledButton(
+                onPressed: saving ? null : save,
+                child: saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text(Strings.save),
+              ),
+            ],
+          );
+        },
       ),
     );
     if (saved == true && context.mounted) {
-      try {
-        final data = {
-          'code': code.text.trim(),
-          'name': name.text.trim(),
-          'description': description.text.trim().isEmpty
-              ? null
-              : description.text.trim(),
-          'leaveTypeId': leaveTypeId,
-          'accrualFrequency': frequency,
-          'annualEntitlementDays': double.tryParse(annual.text.trim()) ?? 0,
-          'carryForwardMaxDays': double.tryParse(carry.text.trim()) ?? 0,
-          'noticeDays': int.tryParse(notice.text.trim()) ?? 0,
-          'negativeBalanceAllowed': negative,
-          'attachmentRequired': attachment,
-          'isActive': active,
-        };
-        final api = ref.read(apiClientProvider);
-        if (current == null) {
-          await api.postMap('/admin/leave-policies', data: data);
-        } else {
-          await api.putMap(
-            '/admin/leave-policies/${current['id']}',
-            data: data,
-          );
-        }
-        ref.invalidate(_adminLeavePoliciesProvider);
-        if (context.mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text(Strings.savedSuccessfully)),
-          );
-      } catch (error) {
-        if (context.mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Leave policy update failed: $error')),
-          );
-      }
+      ref.invalidate(_adminLeavePoliciesProvider);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text(Strings.savedSuccessfully)));
     }
     for (final controller in [code, name, description, annual, carry, notice]) {
       controller.dispose();
@@ -441,35 +596,64 @@ Widget _addButton(String label, VoidCallback onPressed) => Padding(
   ),
 );
 
-Widget _requiredField(TextEditingController controller, String label) =>
-    Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: TextFormField(
-        controller: controller,
-        decoration: InputDecoration(labelText: label),
-        validator: (value) => value == null || value.trim().isEmpty
-            ? Strings.fieldRequired
-            : null,
-      ),
-    );
+Map<String, String> _fieldErrorsFrom(ApiException error) => {
+  for (final entry in error.errors.entries)
+    if (entry.value.isNotEmpty) entry.key: entry.value.first,
+};
+
+String? _fieldError(Map<String, String> errors, String field) {
+  for (final entry in errors.entries) {
+    if (entry.key.toLowerCase() == field.toLowerCase()) return entry.value;
+  }
+  return null;
+}
+
+Widget _formError(String message) => Padding(
+  padding: const EdgeInsets.only(bottom: 12),
+  child: Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(
+      color: Colors.red.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Text(message, style: const TextStyle(color: Colors.red)),
+  ),
+);
+
+Widget _requiredField(
+  TextEditingController controller,
+  String label, {
+  String? errorText,
+}) => Padding(
+  padding: const EdgeInsets.only(bottom: 8),
+  child: TextFormField(
+    controller: controller,
+    decoration: InputDecoration(labelText: label, errorText: errorText),
+    validator: (value) =>
+        value == null || value.trim().isEmpty ? Strings.fieldRequired : null,
+  ),
+);
 
 Widget _numberField(
   TextEditingController controller,
   String label, {
   bool integer = false,
+  String? errorText,
+  num max = 365,
 }) => Padding(
   padding: const EdgeInsets.only(top: 8),
   child: TextFormField(
     controller: controller,
     keyboardType: TextInputType.numberWithOptions(decimal: !integer),
-    decoration: InputDecoration(labelText: label),
+    decoration: InputDecoration(labelText: label, errorText: errorText),
     validator: (value) {
       final parsed = integer
           ? int.tryParse(value ?? '')
           : double.tryParse(value ?? '');
-      return parsed == null || parsed < 0
-          ? 'Enter a non-negative number'
-          : null;
+      if (parsed == null) return 'Enter a valid number.';
+      if (parsed < 0 || parsed > max) return 'Enter a number from 0 to $max.';
+      return null;
     },
   ),
 );

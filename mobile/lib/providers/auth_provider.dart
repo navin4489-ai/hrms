@@ -93,6 +93,28 @@ class AuthController extends Notifier<AuthState> {
       return;
     }
     state = AuthState(status: AuthStatus.authenticated, user: cached);
+    await refreshCurrentUser();
+  }
+
+  /// Refresh cached roles and permissions after server-side administration.
+  /// Keep the last known session usable when the device is offline.
+  Future<void> refreshCurrentUser() async {
+    final current = state.user;
+    if (state.status != AuthStatus.authenticated || current == null) return;
+
+    try {
+      final data = await ref.read(apiClientProvider).getMap('/auth/me');
+      final refreshed = UserPrincipal.fromJson(data);
+      if (state.status != AuthStatus.authenticated ||
+          state.user?.id != current.id) {
+        return;
+      }
+      await _cacheUser(refreshed);
+      state = state.copyWith(user: refreshed);
+    } catch (_) {
+      // Existing cached permissions remain available offline; API authorization
+      // remains authoritative for every protected operation.
+    }
   }
 
   /// `POST /auth/login` (FR-EMP-001). Throws [ApiException] for the UI to

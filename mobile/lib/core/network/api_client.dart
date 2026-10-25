@@ -150,12 +150,14 @@ class ApiClient {
   Future<Map<String, dynamic>> getMap(
     String path, {
     Map<String, dynamic>? query,
+    Map<String, String>? headers,
     CancelToken? cancelToken,
   }) => _guard(() async {
     final response = await dio.get<Map<String, dynamic>>(
       path,
       queryParameters: query,
       cancelToken: cancelToken,
+      options: headers == null ? null : Options(headers: headers),
     );
     return response.data ?? <String, dynamic>{};
   });
@@ -163,12 +165,14 @@ class ApiClient {
   Future<List<dynamic>> getList(
     String path, {
     Map<String, dynamic>? query,
+    Map<String, String>? headers,
     CancelToken? cancelToken,
   }) => _guard(() async {
     final response = await dio.get<List<dynamic>>(
       path,
       queryParameters: query,
       cancelToken: cancelToken,
+      options: headers == null ? null : Options(headers: headers),
     );
     return response.data ?? <dynamic>[];
   });
@@ -201,11 +205,13 @@ class ApiClient {
     String path, {
     Object? data,
     Map<String, dynamic>? query,
+    Map<String, String>? headers,
   }) => _guard(() async {
     final response = await dio.post<Map<String, dynamic>>(
       path,
       data: data,
       queryParameters: query,
+      options: headers == null ? null : Options(headers: headers),
     );
     return response.data ?? <String, dynamic>{};
   });
@@ -214,11 +220,13 @@ class ApiClient {
     String path, {
     Object? data,
     Map<String, dynamic>? query,
+    Map<String, String>? headers,
   }) => _guard(() async {
     final response = await dio.put<Map<String, dynamic>>(
       path,
       data: data,
       queryParameters: query,
+      options: headers == null ? null : Options(headers: headers),
     );
     return response.data ?? <String, dynamic>{};
   });

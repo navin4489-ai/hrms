@@ -20,12 +20,14 @@ class CaseQuery {
     this.status,
     this.category,
     this.priority,
+    this.queue,
     this.mine = true,
   });
 
   final String? status;
   final String? category;
   final String? priority;
+  final String? queue;
   final bool mine;
 
   @override
@@ -34,10 +36,11 @@ class CaseQuery {
       other.status == status &&
       other.category == category &&
       other.priority == priority &&
+      other.queue == queue &&
       other.mine == mine;
 
   @override
-  int get hashCode => Object.hash(status, category, priority, mine);
+  int get hashCode => Object.hash(status, category, priority, queue, mine);
 }
 
 /// `GET /cases` paged (FR-EMP-112).
@@ -81,6 +84,7 @@ final casesProvider = FutureProvider.family<CasePage, CaseQuery>((
   if (query.status != null) params['status'] = query.status;
   if (query.category != null) params['category'] = query.category;
   if (query.priority != null) params['priority'] = query.priority;
+  if (query.queue != null) params['queue'] = query.queue;
   final json = await api.getMap('/cases', query: params);
   return CasePage.fromJson(json);
 });
@@ -154,6 +158,12 @@ class CaseActions {
   /// `POST /cases/{id}/messages` -> 201 (employee reply, FR-EMP-113).
   Future<void> reply({required String caseId, required String body}) async {
     await _api.postMap('/cases/$caseId/messages', data: {'body': body});
+  }
+
+  /// `POST /cases/{id}/notes` -> 201 (HR-internal note, never shown to the
+  /// employee; requires case.manage, FR-ADM-122).
+  Future<void> addNote({required String caseId, required String body}) async {
+    await _api.postMap('/cases/$caseId/notes', data: {'body': body});
   }
 
   /// `POST /cases/{id}/transition` — Reopen for employees within the window.

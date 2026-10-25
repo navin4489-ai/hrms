@@ -34,7 +34,6 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final attendance = ref.watch(attendanceMonthProvider(_monthKey));
 
     return AppScaffold(

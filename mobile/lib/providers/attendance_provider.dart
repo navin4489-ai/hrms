@@ -1,4 +1,7 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../core/network/api_client.dart';
 import '../models/attendance_models.dart';
@@ -39,6 +42,30 @@ final attendanceTodayProvider = FutureProvider<AttendanceRecord>((ref) async {
   return AttendanceRecord.fromJson(json);
 });
 
+/// Admin-controlled capture settings the app reads before punching.
+class CaptureSettings {
+  const CaptureSettings({
+    this.captureLocation = true,
+    this.capturePhoto = true,
+  });
+
+  factory CaptureSettings.fromJson(Map<String, dynamic> json) =>
+      CaptureSettings(
+        captureLocation: json['captureLocation'] as bool? ?? true,
+        capturePhoto: json['capturePhoto'] as bool? ?? true,
+      );
+
+  final bool captureLocation;
+  final bool capturePhoto;
+}
+
+/// `GET /attendance/capture-settings` — what to collect on a punch.
+final captureSettingsProvider = FutureProvider<CaptureSettings>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  final json = await api.getMap('/attendance/capture-settings');
+  return CaptureSettings.fromJson(json);
+});
+
 List<AttendanceCorrection> _correctionItems(Map<String, dynamic> json) {
   final raw = json['items'];
   final list = raw is List ? raw : const [];
@@ -72,17 +99,72 @@ final correctionDetailProvider =
 
 /// Actions for the attendance domain.
 class AttendanceActions {
-  AttendanceActions(this._api);
+  AttendanceActions(this._ref);
 
-  final ApiClient _api;
+  final Ref _ref;
+  ApiClient get _api => _ref.read(apiClientProvider);
 
-  /// `POST /attendance/punch` — location fields are omitted (no location
-  /// package; see INTEGRATION_NOTES.md).
+  /// Best-effort capture of geolocation when enabled; returns null on denial/timeout.
+  Future<Position?> _captureLocation() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return null;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return null;
+      }
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Best-effort selfie capture when enabled; returns null if the user cancels.
+  Future<XFile?> _captureSelfie() async {
+    try {
+      return await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.front,
+        maxWidth: 1080,
+        imageQuality: 70,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// `POST /attendance/punch` (multipart). Captures location + selfie per admin
+  /// settings; punch still succeeds if the employee denies a permission.
   Future<PunchResult> punch() async {
-    final json = await _api.postMap(
-      '/attendance/punch',
-      data: {'source': 'Mobile'},
-    );
+    final settings = await _ref.read(captureSettingsProvider.future);
+
+    Position? position;
+    if (settings.captureLocation) position = await _captureLocation();
+
+    XFile? selfie;
+    if (settings.capturePhoto) selfie = await _captureSelfie();
+
+    final form = FormData.fromMap({
+      'source': 'Mobile',
+      if (position != null) 'latitude': position.latitude,
+      if (position != null) 'longitude': position.longitude,
+      if (position != null) 'accuracyMeters': position.accuracy,
+      if (selfie != null)
+        'photo': await MultipartFile.fromFile(
+          selfie.path,
+          filename: selfie.name,
+        ),
+    });
+
+    final json = await _api.postMultipart('/attendance/punch', formData: form);
     return PunchResult.fromJson(json);
   }
 
@@ -110,5 +192,5 @@ class AttendanceActions {
 }
 
 final attendanceActionsProvider = Provider<AttendanceActions>(
-  (ref) => AttendanceActions(ref.watch(apiClientProvider)),
+  (ref) => AttendanceActions(ref),
 );

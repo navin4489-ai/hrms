@@ -18,6 +18,12 @@ import '../features/admin/admin_employee_import_screen.dart';
 import '../features/admin/admin_shifts_screen.dart';
 import '../features/admin/admin_payroll_import_screen.dart';
 import '../features/admin/admin_performance_screen.dart';
+import '../features/admin/admin_attendance_dashboard_screen.dart';
+import '../features/admin/admin_organizations_screen.dart';
+import '../features/helpdesk/admin_cases_screen.dart';
+import '../features/chat/chat_home_screen.dart';
+import '../features/chat/conversation_screen.dart';
+import '../features/chat/call_screen.dart';
 import '../features/announcements/announcements_screen.dart';
 import '../features/approvals/approval_detail_screen.dart';
 import '../features/approvals/approvals_screen.dart';
@@ -104,6 +110,32 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
       GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
       GoRoute(path: '/mfa', builder: (_, __) => const MfaScreen()),
+      GoRoute(path: '/chat', builder: (_, __) => const ChatHomeScreen()),
+      GoRoute(
+        path: '/chat/conversation/:id',
+        builder: (context, state) {
+          final extra = (state.extra as Map?) ?? const {};
+          return ConversationScreen(
+            conversationId: state.pathParameters['id']!,
+            title: (extra['title'] as String?) ?? 'Chat',
+            otherEmployeeId: extra['otherEmployeeId'] as String?,
+            isGroup: (extra['isGroup'] as bool?) ?? false,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/chat/call',
+        builder: (context, state) {
+          final extra = (state.extra as Map?) ?? const {};
+          return CallScreen(
+            employeeId: (extra['employeeId'] as String?) ?? '',
+            name: (extra['name'] as String?) ?? 'Call',
+            kind: (extra['kind'] as String?) ?? 'Audio',
+            outgoing: (extra['outgoing'] as bool?) ?? true,
+            callId: extra['callId'] as String?,
+          );
+        },
+      ),
       GoRoute(
         path: '/forgot-password',
         builder: (_, __) => const ForgotPasswordScreen(),
@@ -292,6 +324,19 @@ final routerProvider = Provider<GoRouter>((ref) {
                       GoRoute(
                         path: 'performance',
                         builder: (_, __) => const AdminPerformanceScreen(),
+                      ),
+                      GoRoute(
+                        path: 'attendance',
+                        builder: (_, __) =>
+                            const AdminAttendanceDashboardScreen(),
+                      ),
+                      GoRoute(
+                        path: 'cases',
+                        builder: (_, __) => const AdminCasesScreen(),
+                      ),
+                      GoRoute(
+                        path: 'organizations',
+                        builder: (_, __) => const AdminOrganizationsScreen(),
                       ),
                     ],
                   ),

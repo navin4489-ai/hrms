@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/strings.dart';
 import '../../providers/api_provider.dart';
 import '../../widgets/app_scaffold.dart';
@@ -44,148 +45,235 @@ class AdminShiftsScreen extends ConsumerWidget {
     var isDefault = current?['isDefault'] == true;
     var isActive = current?['isActive'] != false;
     final formKey = GlobalKey<FormState>();
+    var saving = false;
+    String? formError;
+    String? weekdaysError;
+    Map<String, String> fieldErrors = {};
     final saved = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setState) => AlertDialog(
-          title: Text(current == null ? 'Add work shift' : 'Edit work shift'),
-          content: SizedBox(
-            width: 500,
-            child: Form(
-              key: formKey,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _requiredField(code, 'Shift code'),
-                    _requiredField(name, 'Shift name'),
-                    Row(
-                      children: [
-                        Expanded(child: _timeField(start, 'Start time')),
-                        const SizedBox(width: 10),
-                        Expanded(child: _timeField(end, 'End time')),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _integerField(grace, 'Grace minutes', 0, 180),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _integerField(
-                            breakMinutes,
-                            'Break minutes',
-                            0,
-                            600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Padding(
-                        padding: EdgeInsets.only(top: 12),
-                        child: Text('Working days'),
+        builder: (dialogContext, setDialogState) {
+          Future<void> save() async {
+            if (!(formKey.currentState?.validate() ?? false)) return;
+            if (weekdays.isEmpty) {
+              setDialogState(() {
+                weekdaysError = 'Select at least one working day.';
+              });
+              return;
+            }
+            setDialogState(() {
+              saving = true;
+              formError = null;
+              weekdaysError = null;
+              fieldErrors = {};
+            });
+            try {
+              final data = {
+                'code': code.text.trim(),
+                'name': name.text.trim(),
+                'startTime': start.text.trim(),
+                'endTime': end.text.trim(),
+                'graceMinutes': int.parse(grace.text.trim()),
+                'breakMinutes': int.parse(breakMinutes.text.trim()),
+                'weekDays': [
+                  'Mon',
+                  'Tue',
+                  'Wed',
+                  'Thu',
+                  'Fri',
+                  'Sat',
+                  'Sun',
+                ].where(weekdays.contains).toList(),
+                'isDefault': isDefault,
+                'isActive': isActive,
+              };
+              final api = ref.read(apiClientProvider);
+              if (current == null) {
+                await api.postMap('/admin/shifts', data: data);
+              } else {
+                await api.putMap('/admin/shifts/${current['id']}', data: data);
+              }
+              if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+            } on ApiException catch (error) {
+              setDialogState(() {
+                fieldErrors = _shiftFieldErrors(error);
+                if (error.statusCode == 409 &&
+                    error.message.toLowerCase().contains('code')) {
+                  fieldErrors['code'] = error.message;
+                }
+                formError = error.errors.isEmpty ? error.message : error.detail;
+                saving = false;
+              });
+            } catch (error) {
+              setDialogState(() {
+                formError = 'Could not save shift: $error';
+                saving = false;
+              });
+            }
+          }
+
+          return AlertDialog(
+            title: Text(current == null ? 'Add work shift' : 'Edit work shift'),
+            content: SizedBox(
+              width: 500,
+              child: Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (formError != null) _shiftFormError(formError!),
+                      _requiredField(
+                        code,
+                        'Shift code',
+                        _shiftFieldError(fieldErrors, 'code'),
                       ),
-                    ),
-                    Wrap(
-                      spacing: 2,
-                      children: [
-                        for (final day in const [
-                          'Mon',
-                          'Tue',
-                          'Wed',
-                          'Thu',
-                          'Fri',
-                          'Sat',
-                          'Sun',
-                        ])
-                          FilterChip(
-                            label: Text(day),
-                            selected: weekdays.contains(day),
-                            onSelected: (selected) => setState(() {
-                              if (selected) {
-                                weekdays.add(day);
-                              } else {
-                                weekdays.remove(day);
-                              }
-                            }),
+                      _requiredField(
+                        name,
+                        'Shift name',
+                        _shiftFieldError(fieldErrors, 'name'),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _timeField(
+                              start,
+                              'Start time',
+                              _shiftFieldError(fieldErrors, 'startTime'),
+                            ),
                           ),
-                      ],
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Default shift'),
-                      value: isDefault,
-                      onChanged: (value) => setState(() => isDefault = value),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Active'),
-                      value: isActive,
-                      onChanged: (value) => setState(() => isActive = value),
-                    ),
-                  ],
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _timeField(
+                              end,
+                              'End time',
+                              _shiftFieldError(fieldErrors, 'endTime'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _integerField(
+                              grace,
+                              'Grace minutes',
+                              0,
+                              180,
+                              _shiftFieldError(fieldErrors, 'graceMinutes'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _integerField(
+                              breakMinutes,
+                              'Break minutes',
+                              0,
+                              600,
+                              _shiftFieldError(fieldErrors, 'breakMinutes'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Padding(
+                          padding: EdgeInsets.only(top: 12),
+                          child: Text('Working days'),
+                        ),
+                      ),
+                      Wrap(
+                        spacing: 2,
+                        children: [
+                          for (final day in const [
+                            'Mon',
+                            'Tue',
+                            'Wed',
+                            'Thu',
+                            'Fri',
+                            'Sat',
+                            'Sun',
+                          ])
+                            FilterChip(
+                              label: Text(day),
+                              selected: weekdays.contains(day),
+                              onSelected: saving
+                                  ? null
+                                  : (selected) => setDialogState(() {
+                                      if (selected) {
+                                        weekdays.add(day);
+                                      } else {
+                                        weekdays.remove(day);
+                                      }
+                                      weekdaysError = null;
+                                    }),
+                            ),
+                        ],
+                      ),
+                      if (weekdaysError != null ||
+                          _shiftFieldError(fieldErrors, 'weekDays') != null)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              weekdaysError ??
+                                  _shiftFieldError(fieldErrors, 'weekDays')!,
+                              style: TextStyle(
+                                color: Theme.of(dialogContext)
+                                    .colorScheme
+                                    .error,
+                              ),
+                            ),
+                          ),
+                        ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Default shift'),
+                        value: isDefault,
+                        onChanged: saving
+                            ? null
+                            : (value) =>
+                                  setDialogState(() => isDefault = value),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Active'),
+                        value: isActive,
+                        onChanged: saving
+                            ? null
+                            : (value) => setDialogState(() => isActive = value),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text(Strings.cancel),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (weekdays.isEmpty) return;
-                if (formKey.currentState?.validate() ?? false)
-                  Navigator.pop(dialogContext, true);
-              },
-              child: const Text(Strings.save),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(dialogContext),
+                child: const Text(Strings.cancel),
+              ),
+              FilledButton(
+                onPressed: saving ? null : save,
+                child: saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text(Strings.save),
+              ),
+            ],
+          );
+        },
       ),
     );
     if (saved == true && context.mounted) {
-      try {
-        final data = {
-          'code': code.text.trim(),
-          'name': name.text.trim(),
-          'startTime': start.text.trim(),
-          'endTime': end.text.trim(),
-          'graceMinutes': int.parse(grace.text.trim()),
-          'breakMinutes': int.parse(breakMinutes.text.trim()),
-          'weekDays': [
-            'Mon',
-            'Tue',
-            'Wed',
-            'Thu',
-            'Fri',
-            'Sat',
-            'Sun',
-          ].where(weekdays.contains).toList(),
-          'isDefault': isDefault,
-          'isActive': isActive,
-        };
-        final api = ref.read(apiClientProvider);
-        if (current == null) {
-          await api.postMap('/admin/shifts', data: data);
-        } else {
-          await api.putMap('/admin/shifts/${current['id']}', data: data);
-        }
-        ref.invalidate(adminShiftsProvider);
-        if (context.mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text(Strings.savedSuccessfully)),
-          );
-      } catch (error) {
-        if (context.mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Shift update failed: $error')),
-          );
-      }
+      ref.invalidate(adminShiftsProvider);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text(Strings.savedSuccessfully)));
     }
     for (final controller in [code, name, start, end, grace, breakMinutes]) {
       controller.dispose();
@@ -251,24 +339,54 @@ class AdminShiftsScreen extends ConsumerWidget {
   }
 }
 
-Widget _requiredField(TextEditingController controller, String label) =>
-    Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: TextFormField(
-        controller: controller,
-        decoration: InputDecoration(labelText: label),
-        validator: (value) => value == null || value.trim().isEmpty
-            ? Strings.fieldRequired
-            : null,
-      ),
-    );
+Map<String, String> _shiftFieldErrors(ApiException error) => {
+  for (final entry in error.errors.entries)
+    if (entry.value.isNotEmpty) entry.key: entry.value.first,
+};
 
-Widget _timeField(TextEditingController controller, String label) => Padding(
+String? _shiftFieldError(Map<String, String> errors, String field) {
+  for (final entry in errors.entries) {
+    if (entry.key.toLowerCase() == field.toLowerCase()) return entry.value;
+  }
+  return null;
+}
+
+Widget _shiftFormError(String message) => Padding(
+  padding: const EdgeInsets.only(bottom: 10),
+  child: Align(
+    alignment: Alignment.centerLeft,
+    child: Text(message, style: const TextStyle(color: Colors.red)),
+  ),
+);
+
+Widget _requiredField(
+  TextEditingController controller,
+  String label,
+  String? errorText,
+) => Padding(
+  padding: const EdgeInsets.only(bottom: 8),
+  child: TextFormField(
+    controller: controller,
+    decoration: InputDecoration(labelText: label, errorText: errorText),
+    validator: (value) =>
+        value == null || value.trim().isEmpty ? Strings.fieldRequired : null,
+  ),
+);
+
+Widget _timeField(
+  TextEditingController controller,
+  String label,
+  String? errorText,
+) => Padding(
   padding: const EdgeInsets.only(bottom: 8),
   child: TextFormField(
     controller: controller,
     keyboardType: TextInputType.datetime,
-    decoration: InputDecoration(labelText: label, hintText: 'HH:mm'),
+    decoration: InputDecoration(
+      labelText: label,
+      hintText: 'HH:mm',
+      errorText: errorText,
+    ),
     validator: (value) =>
         value != null &&
             RegExp(r'^([01]\d|2[0-3]):[0-5]\d$').hasMatch(value.trim())
@@ -282,12 +400,13 @@ Widget _integerField(
   String label,
   int min,
   int max,
+  String? errorText,
 ) => Padding(
   padding: const EdgeInsets.only(bottom: 8),
   child: TextFormField(
     controller: controller,
     keyboardType: TextInputType.number,
-    decoration: InputDecoration(labelText: label),
+    decoration: InputDecoration(labelText: label, errorText: errorText),
     validator: (value) {
       final parsed = int.tryParse(value ?? '');
       return parsed == null || parsed < min || parsed > max

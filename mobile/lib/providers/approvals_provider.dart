@@ -56,8 +56,13 @@ final approvalStatsProvider = FutureProvider<ApprovalStats>((ref) async {
 /// `GET /approvals/mine` — my own requests' workflow state.
 final myApprovalsProvider = FutureProvider<List<MyWorkflowTask>>((ref) async {
   final api = ref.watch(apiClientProvider);
-  final list = await api.getList('/approvals/mine');
-  return list
+  // The API returns the standard paged envelope, not a bare JSON array.
+  final json = await api.getMap(
+    '/approvals/mine',
+    query: {'page': 1, 'pageSize': 100},
+  );
+  final rawItems = json['items'];
+  return (rawItems is List ? rawItems : const <dynamic>[])
       .whereType<Map>()
       .map((e) => MyWorkflowTask.fromJson(Map<String, dynamic>.from(e)))
       .toList(growable: false);

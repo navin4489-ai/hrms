@@ -1,30 +1,107 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/network/chat_realtime.dart';
 import '../../core/strings.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/chat_provider.dart';
 import '../../providers/approvals_provider.dart';
-import '../../widgets/app_scaffold.dart';
 
 /// Bottom-navigation shell hosting the five primary branches:
 /// Home, Attendance, Leave, Approvals, More.
 ///
 /// Shows an unread badge on the Approvals tab when there are pending tasks
-/// (line-manager view; employees see 0).
-class AppShell extends ConsumerWidget {
+/// (line-manager view; employees see 0). Also hosts the global incoming-call
+/// listener so employees are notified of calls anywhere in the app.
+class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key, required this.shell});
 
   final StatefulNavigationShell shell;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends ConsumerState<AppShell> {
+  StreamSubscription<IncomingCall>? _callSub;
+  bool _dialogOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _initRealtime());
+  }
+
+  void _initRealtime() {
+    final auth = ref.read(authStateProvider);
+    if (!auth.hasPermission('call.use')) return;
+    final rt = ref.read(chatRealtimeProvider);
+    rt.connect();
+    _callSub = rt.incomingCall.listen(_onIncomingCall);
+  }
+
+  Future<void> _onIncomingCall(IncomingCall call) async {
+    if (_dialogOpen || !mounted) return;
+    _dialogOpen = true;
+    final accept = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text('Incoming ${call.kind.toLowerCase()} call'),
+        content: Text('${call.fromName} is calling you.'),
+        actions: [
+          TextButton.icon(
+            onPressed: () => Navigator.pop(ctx, false),
+            icon: const Icon(Icons.call_end, color: Colors.red),
+            label: const Text('Decline'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.call),
+            label: const Text('Accept'),
+          ),
+        ],
+      ),
+    );
+    _dialogOpen = false;
+    if (!mounted) return;
+    if (accept == true) {
+      context.push(
+        '/chat/call',
+        extra: {
+          'employeeId': call.fromEmployeeId,
+          'name': call.fromName,
+          'kind': call.kind,
+          'outgoing': false,
+          'callId': call.callId,
+        },
+      );
+    } else {
+      // Decline: end the call on the server.
+      try {
+        await ref.read(chatActionsProvider).endCall(call.callId, 'Declined');
+      } catch (_) {}
+    }
+  }
+
+  @override
+  void dispose() {
+    _callSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final stats = ref.watch(approvalStatsProvider);
     final pending = stats.value?.pending ?? 0;
 
     return Scaffold(
-      body: shell,
+      body: widget.shell,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: shell.currentIndex,
+        selectedIndex: widget.shell.currentIndex,
         onDestinationSelected: _onSelect,
         destinations: [
           const NavigationDestination(
@@ -66,11 +143,10 @@ class AppShell extends ConsumerWidget {
   }
 
   void _onSelect(int index) {
-    // Tapping the active tab pops its stack to the root (Material pattern).
-    if (index == shell.currentIndex) {
-      shell.goBranch(index, initialLocation: true);
+    if (index == widget.shell.currentIndex) {
+      widget.shell.goBranch(index, initialLocation: true);
     } else {
-      shell.goBranch(index);
+      widget.shell.goBranch(index);
     }
   }
 }

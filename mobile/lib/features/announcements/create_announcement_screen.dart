@@ -35,6 +35,7 @@ class _CreateAnnouncementScreenState
   bool _pinned = false;
   bool _busy = false;
   String? _error;
+  Map<String, String> _fieldErrors = {};
 
   static const _categories = [
     'Company',
@@ -65,8 +66,37 @@ class _CreateAnnouncementScreenState
 
   Future<void> _selectDate(TextEditingController controller) async {
     final picked = await _pickDate(DateTime.tryParse(controller.text));
-    if (picked != null) setState(() => controller.text = _date(picked));
+    if (picked != null) {
+      setState(() {
+        controller.text = _date(picked);
+        final key = controller == _publishAt ? 'publishAt' : 'expiresAt';
+        _removeFieldError(key);
+        _error = null;
+      });
+    }
   }
+
+  String? _fieldError(String key) {
+    for (final entry in _fieldErrors.entries) {
+      if (entry.key.toLowerCase() == key.toLowerCase()) return entry.value;
+    }
+    return null;
+  }
+
+  void _clearFieldError(String key) {
+    if (_fieldErrors.keys.any(
+      (field) => field.toLowerCase() == key.toLowerCase(),
+    )) {
+      setState(() {
+        _removeFieldError(key);
+        _error = null;
+      });
+    }
+  }
+
+  void _removeFieldError(String key) => _fieldErrors.removeWhere(
+    (field, _) => field.toLowerCase() == key.toLowerCase(),
+  );
 
   String _date(DateTime date) =>
       '${date.year.toString().padLeft(4, '0')}-'
@@ -74,9 +104,27 @@ class _CreateAnnouncementScreenState
       '${date.day.toString().padLeft(2, '0')}T09:00:00';
 
   Future<void> _submit() async {
+    setState(() {
+      _fieldErrors = {};
+      _error = null;
+    });
     if (!(_formKey.currentState?.validate() ?? false)) return;
     if (_audience != 'All' && _audienceId == null) {
-      setState(() => _error = 'Select the target department or location.');
+      setState(() {
+        _fieldErrors = {
+          'audienceIds': 'Select the target department or location.',
+        };
+      });
+      return;
+    }
+    final publishAt = DateTime.tryParse(_publishAt.text);
+    final expiresAt = DateTime.tryParse(_expiresAt.text);
+    if (publishAt != null &&
+        expiresAt != null &&
+        !expiresAt.isAfter(publishAt)) {
+      setState(() {
+        _fieldErrors = {'expiresAt': 'Expiry must be after the publish date.'};
+      });
       return;
     }
 
@@ -116,7 +164,15 @@ class _CreateAnnouncementScreenState
       ref.invalidate(announcementsProvider);
       if (mounted) context.pop(true);
     } on ApiException catch (error) {
-      if (mounted) setState(() => _error = error.message);
+      if (mounted) {
+        setState(() {
+          _fieldErrors = {
+            for (final entry in error.errors.entries)
+              if (entry.value.isNotEmpty) entry.key: entry.value.first,
+          };
+          _error = error.errors.isEmpty ? error.message : error.detail;
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => _error = Strings.offlineMessage);
     } finally {
@@ -164,16 +220,36 @@ class _CreateAnnouncementScreenState
                   controller: _title,
                   enabled: !_busy,
                   maxLength: 200,
-                  validator: (value) => Validators.required(value),
-                  decoration: const InputDecoration(labelText: 'Title'),
+                  validator: (value) {
+                    final required = Validators.required(value);
+                    if (required != null) return required;
+                    return value!.trim().length > 200
+                        ? 'Title must be 200 characters or fewer.'
+                        : null;
+                  },
+                  onChanged: (_) => _clearFieldError('title'),
+                  decoration: InputDecoration(
+                    labelText: 'Title',
+                    errorText: _fieldError('title'),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _summary,
                   enabled: !_busy,
                   maxLength: 500,
-                  validator: (value) => Validators.required(value),
-                  decoration: const InputDecoration(labelText: 'Summary'),
+                  validator: (value) {
+                    final required = Validators.required(value);
+                    if (required != null) return required;
+                    return value!.trim().length > 500
+                        ? 'Summary must be 500 characters or fewer.'
+                        : null;
+                  },
+                  onChanged: (_) => _clearFieldError('summary'),
+                  decoration: InputDecoration(
+                    labelText: 'Summary',
+                    errorText: _fieldError('summary'),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -182,26 +258,45 @@ class _CreateAnnouncementScreenState
                   minLines: 4,
                   maxLines: 8,
                   maxLength: 8000,
-                  validator: (value) => Validators.required(value),
-                  decoration: const InputDecoration(labelText: 'Announcement'),
+                  validator: (value) {
+                    final required = Validators.required(value);
+                    if (required != null) return required;
+                    return value!.trim().length > 8000
+                        ? 'Announcement must be 8000 characters or fewer.'
+                        : null;
+                  },
+                  onChanged: (_) => _clearFieldError('body'),
+                  decoration: InputDecoration(
+                    labelText: 'Announcement',
+                    errorText: _fieldError('body'),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _category,
-                  decoration: const InputDecoration(labelText: 'Category'),
+                  decoration: InputDecoration(
+                    labelText: 'Category',
+                    errorText: _fieldError('category'),
+                  ),
                   items: [
                     for (final item in _categories)
                       DropdownMenuItem(value: item, child: Text(item)),
                   ],
                   onChanged: _busy
                       ? null
-                      : (value) =>
-                            setState(() => _category = value ?? _category),
+                      : (value) => setState(() {
+                          _category = value ?? _category;
+                          _removeFieldError('category');
+                          _error = null;
+                        }),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _audience,
-                  decoration: const InputDecoration(labelText: 'Audience'),
+                  decoration: InputDecoration(
+                    labelText: 'Audience',
+                    errorText: _fieldError('audience'),
+                  ),
                   items: [
                     for (final item in _audiences)
                       DropdownMenuItem(value: item, child: Text(item)),
@@ -211,6 +306,9 @@ class _CreateAnnouncementScreenState
                       : (value) => setState(() {
                           _audience = value ?? 'All';
                           _audienceId = null;
+                          _removeFieldError('audience');
+                          _removeFieldError('audienceIds');
+                          _error = null;
                         }),
                 ),
                 const SizedBox(height: 12),
@@ -222,6 +320,7 @@ class _CreateAnnouncementScreenState
                   decoration: InputDecoration(
                     labelText: 'Schedule publish (optional)',
                     hintText: 'Leave blank to publish now',
+                    errorText: _fieldError('publishAt'),
                     prefixIcon: const Icon(Icons.schedule_rounded),
                     suffixIcon: _publishAt.text.isEmpty
                         ? null
@@ -229,7 +328,11 @@ class _CreateAnnouncementScreenState
                             tooltip: Strings.close,
                             onPressed: _busy
                                 ? null
-                                : () => setState(_publishAt.clear),
+                                : () => setState(() {
+                                    _publishAt.clear();
+                                    _removeFieldError('publishAt');
+                                    _error = null;
+                                  }),
                             icon: const Icon(Icons.close_rounded),
                           ),
                   ),
@@ -242,6 +345,7 @@ class _CreateAnnouncementScreenState
                   onTap: _busy ? null : () => _selectDate(_expiresAt),
                   decoration: InputDecoration(
                     labelText: 'Expiry date (optional)',
+                    errorText: _fieldError('expiresAt'),
                     prefixIcon: const Icon(Icons.event_busy_outlined),
                     suffixIcon: _expiresAt.text.isEmpty
                         ? null
@@ -249,7 +353,11 @@ class _CreateAnnouncementScreenState
                             tooltip: Strings.close,
                             onPressed: _busy
                                 ? null
-                                : () => setState(_expiresAt.clear),
+                                : () => setState(() {
+                                    _expiresAt.clear();
+                                    _removeFieldError('expiresAt');
+                                    _error = null;
+                                  }),
                             icon: const Icon(Icons.close_rounded),
                           ),
                   ),
@@ -258,8 +366,9 @@ class _CreateAnnouncementScreenState
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     initialValue: _audienceId,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: Strings.department,
+                      errorText: _fieldError('audienceIds'),
                     ),
                     items: [
                       for (final item in departmentItems)
@@ -270,15 +379,20 @@ class _CreateAnnouncementScreenState
                     ],
                     onChanged: _busy
                         ? null
-                        : (value) => setState(() => _audienceId = value),
+                        : (value) => setState(() {
+                            _audienceId = value;
+                            _removeFieldError('audienceIds');
+                            _error = null;
+                          }),
                   ),
                 ],
                 if (_audience == 'Location') ...[
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     initialValue: _audienceId,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: Strings.location,
+                      errorText: _fieldError('audienceIds'),
                     ),
                     items: [
                       for (final item in locationItems)
@@ -289,7 +403,11 @@ class _CreateAnnouncementScreenState
                     ],
                     onChanged: _busy
                         ? null
-                        : (value) => setState(() => _audienceId = value),
+                        : (value) => setState(() {
+                            _audienceId = value;
+                            _removeFieldError('audienceIds');
+                            _error = null;
+                          }),
                   ),
                 ],
                 SwitchListTile(

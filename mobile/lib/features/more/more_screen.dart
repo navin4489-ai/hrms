@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/strings.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/organizations_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../widgets/app_scaffold.dart';
 import '../../widgets/confirm_dialog.dart';
@@ -61,11 +62,25 @@ class MoreScreen extends ConsumerWidget {
       'employee.create',
       'employee.manage',
     ]);
+    final canManageAttendance = auth.hasPermission('attendance.manage');
+    final canManageCases = auth.hasPermission('case.manage');
+    final canManageOrgs = auth.hasPermission('admin.organizations');
+    final canUseChat = auth.hasPermission('chat.use');
+    final canCall = auth.hasPermission('call.use');
+
+    // Per-org module flags: a module absent from the set is hidden for this org.
+    // While loading (or on error) we default to showing everything so admins are
+    // never locked out by a transient fetch failure.
+    final modules = ref.watch(meModulesProvider).value;
+    bool moduleOn(String m) => modules == null || modules.contains(m);
 
     return AppScaffold(
       title: Strings.moreTitle,
       body: RefreshIndicator(
-        onRefresh: () async => ref.invalidate(meProvider),
+        onRefresh: () async {
+          ref.invalidate(meProvider);
+          ref.invalidate(meModulesProvider);
+        },
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
@@ -97,6 +112,27 @@ class MoreScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 12),
+            if (canUseChat && moduleOn('chat')) ...[
+              Card(
+                clipBehavior: Clip.antiAlias,
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: scheme.tertiaryContainer,
+                    foregroundColor: scheme.onTertiaryContainer,
+                    child: const Icon(Icons.forum_rounded),
+                  ),
+                  title: const Text('Chat & Calls'),
+                  subtitle: Text(
+                    canCall && moduleOn('calling')
+                        ? 'Message, share files and call colleagues'
+                        : 'Message and share files with colleagues',
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => context.push('/chat'),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             SectionCard(
               title: Strings.profile,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
@@ -135,7 +171,10 @@ class MoreScreen extends ConsumerWidget {
                 canCreateAnnouncement ||
                 canManageDocuments ||
                 canManageAssets ||
-                canManageLifecycle) ...[
+                canManageLifecycle ||
+                canManageAttendance ||
+                canManageCases ||
+                canManageOrgs) ...[
               const SizedBox(height: 12),
               SectionCard(
                 title: Strings.adminTools,
@@ -145,6 +184,12 @@ class MoreScreen extends ConsumerWidget {
                 ),
                 child: Column(
                   children: [
+                    if (canManageOrgs)
+                      _Tile(
+                        icon: Icons.apartment_outlined,
+                        label: 'Organizations (tenants)',
+                        onTap: () => context.go('/more/admin/organizations'),
+                      ),
                     if (canManageEmployees)
                       _Tile(
                         icon: Icons.manage_accounts_outlined,
@@ -188,13 +233,14 @@ class MoreScreen extends ConsumerWidget {
                         label: 'Approval workflows',
                         onTap: () => context.go('/more/admin/workflows'),
                       ),
-                    if (auth.hasPermission('admin.config'))
+                    if (auth.hasPermission('admin.config') && moduleOn('leave'))
                       _Tile(
                         icon: Icons.event_available_outlined,
                         label: 'Leave administration',
                         onTap: () => context.go('/more/admin/leave'),
                       ),
-                    if (auth.hasPermission('admin.config'))
+                    if (auth.hasPermission('admin.config') &&
+                        moduleOn('attendance'))
                       _Tile(
                         icon: Icons.schedule_outlined,
                         label: 'Shift configuration',
@@ -206,31 +252,32 @@ class MoreScreen extends ConsumerWidget {
                         label: 'Workforce reports',
                         onTap: () => context.go('/more/admin/reports'),
                       ),
-                    if (canManagePayroll)
+                    if (canManagePayroll && moduleOn('payroll'))
                       _Tile(
                         icon: Icons.payments_outlined,
                         label: 'Payroll periods',
                         onTap: () => context.go('/more/admin/payroll-periods'),
                       ),
-                    if (canManagePerformance || canManageTraining)
+                    if ((canManagePerformance && moduleOn('performance')) ||
+                        (canManageTraining && moduleOn('training')))
                       _Tile(
                         icon: Icons.school_outlined,
                         label: 'Performance & learning',
                         onTap: () => context.go('/more/admin/performance'),
                       ),
-                    if (canCreateAnnouncement)
+                    if (canCreateAnnouncement && moduleOn('announcements'))
                       _Tile(
                         icon: Icons.campaign_outlined,
                         label: 'Create announcement',
                         onTap: () => context.go('/home/announcements/new'),
                       ),
-                    if (canManageDocuments)
+                    if (canManageDocuments && moduleOn('documents'))
                       _Tile(
                         icon: Icons.verified_user_outlined,
                         label: 'Document verification',
                         onTap: () => context.go('/more/admin/documents'),
                       ),
-                    if (canManageAssets)
+                    if (canManageAssets && moduleOn('assets'))
                       _Tile(
                         icon: Icons.inventory_2_outlined,
                         label: 'Asset inventory',
@@ -242,6 +289,18 @@ class MoreScreen extends ConsumerWidget {
                         icon: Icons.checklist_rounded,
                         label: 'Onboarding & offboarding',
                         onTap: () => context.go('/more/admin/lifecycle'),
+                      ),
+                    if (canManageAttendance && moduleOn('attendance'))
+                      _Tile(
+                        icon: Icons.insights_outlined,
+                        label: 'Attendance dashboard',
+                        onTap: () => context.go('/more/admin/attendance'),
+                      ),
+                    if (canManageCases && moduleOn('helpdesk'))
+                      _Tile(
+                        icon: Icons.support_agent_outlined,
+                        label: 'Helpdesk queue',
+                        onTap: () => context.go('/more/admin/cases'),
                       ),
                   ],
                 ),

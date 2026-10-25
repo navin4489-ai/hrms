@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Take an optional attendance selfie when punch capture is enabled by your administrator.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Capture your location with an attendance punch when required by your administrator.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

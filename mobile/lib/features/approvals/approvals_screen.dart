@@ -6,10 +6,8 @@ import '../../core/strings.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/approvals_models.dart';
 import '../../providers/approvals_provider.dart';
-import '../../providers/dashboard_provider.dart';
 import '../../widgets/app_scaffold.dart';
 import '../../widgets/async_body.dart';
-import '../../widgets/section_card.dart';
 import '../../widgets/status_chip.dart';
 
 /// Approvals inbox (FR-MGR-001): pending tasks awaiting my decision plus my
