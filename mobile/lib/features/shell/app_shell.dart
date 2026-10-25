@@ -99,6 +99,8 @@ class _AppShellState extends ConsumerState<AppShell> {
   Future<void> _onIncomingCall(IncomingCall call) async {
     if (_dialogOpen || !mounted) return;
     _dialogOpen = true;
+    // Ring while the incoming-call dialog is shown.
+    PushNotifications.instance.startRingtone();
     final accept = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -120,6 +122,8 @@ class _AppShellState extends ConsumerState<AppShell> {
       ),
     );
     _dialogOpen = false;
+    // Stop the dialog ringtone; the call screen manages its own ring afterwards.
+    await PushNotifications.instance.stopRingtone();
     if (!mounted) return;
     if (accept == true) {
       context.push(

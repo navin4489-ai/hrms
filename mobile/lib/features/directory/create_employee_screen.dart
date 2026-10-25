@@ -336,18 +336,37 @@ class _CreateEmployeeScreenState extends ConsumerState<CreateEmployeeScreen> {
                   },
           ),
           const SizedBox(height: 14),
-          DropdownButtonFormField<String>(
-            initialValue: _legalEntityId,
-            decoration: const InputDecoration(labelText: Strings.legalEntity),
-            validator: (value) =>
-                value == null ? Strings.selectLegalEntity : null,
-            items: [
-              for (final entity in options.legalEntities)
-                DropdownMenuItem(value: entity.id, child: Text(entity.name)),
-            ],
-            onChanged: _saving
-                ? null
-                : (value) => setState(() => _legalEntityId = value),
+          Builder(
+            builder: (context) {
+              // Fall back to all org units if none are explicitly typed as a
+              // legal entity (some orgs only have departments configured).
+              final entityOptions = options.legalEntities.isNotEmpty
+                  ? options.legalEntities
+                  : options.orgUnits;
+              return DropdownButtonFormField<String>(
+                initialValue: _legalEntityId,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: Strings.legalEntity,
+                ),
+                validator: (value) =>
+                    value == null ? Strings.selectLegalEntity : null,
+                items: [
+                  for (final entity in entityOptions)
+                    DropdownMenuItem(
+                      value: entity.id,
+                      child: Text(
+                        entity.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: _saving
+                    ? null
+                    : (value) => setState(() => _legalEntityId = value),
+              );
+            },
           ),
           const SizedBox(height: 14),
           DropdownButtonFormField<String?>(

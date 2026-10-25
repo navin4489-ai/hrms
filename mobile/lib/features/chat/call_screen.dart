@@ -11,6 +11,12 @@ import '../../providers/chat_provider.dart';
 
 /// 1:1 WebRTC audio/video call screen. Media is peer-to-peer; signaling flows
 /// over the SignalR chat hub. Supports an outgoing caller and an incoming callee.
+///
+/// Handshake (fixes the "offer lost before callee was listening" race):
+///  1. caller.startCall -> callee gets incomingCall (rings)
+///  2. callee opens this screen, prepares media, sends "ready"
+///  3. caller (on "ready") creates & sends the SDP offer
+///  4. callee answers; ICE candidates are buffered until the remote SDP is set
 class CallScreen extends ConsumerStatefulWidget {
   const CallScreen({
     super.key,
@@ -35,6 +41,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   final _localRenderer = RTCVideoRenderer();
   final _remoteRenderer = RTCVideoRenderer();
   final List<StreamSubscription<dynamic>> _subs = [];
+  final List<RTCIceCandidate> _pendingCandidates = [];
 
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
@@ -43,6 +50,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   bool _muted = false;
   bool _videoOff = false;
   bool _speaker = true;
+  bool _remoteDescriptionSet = false;
+  bool _offerSent = false;
+  bool _ended = false;
   DateTime? _connectedAt;
 
   bool get _isVideo => widget.kind == 'Video';
@@ -52,6 +62,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
     ],
+    'sdpSemantics': 'unified-plan',
   };
 
   @override
@@ -71,9 +82,11 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
 
-    // Ring until the call is answered/connected.
+    // Both sides ring/ringback until media connects.
     PushNotifications.instance.startRingtone();
+    setState(() => _status = widget.outgoing ? 'Ringing…' : 'Incoming…');
 
+    // Permissions up front.
     final perms = _isVideo
         ? [Permission.microphone, Permission.camera]
         : [Permission.microphone];
@@ -83,24 +96,28 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     await rt.connect();
     _bindSignaling(rt);
 
+    // Local media.
     try {
       _localStream = await navigator.mediaDevices.getUserMedia({
         'audio': true,
-        'video': _isVideo ? {'facingMode': 'user'} : false,
+        'video': _isVideo
+            ? {'facingMode': 'user', 'width': 640, 'height': 480}
+            : false,
       });
       _localRenderer.srcObject = _localStream;
     } catch (e) {
-      setState(() => _status = 'Media error: $e');
+      _fail('Microphone/camera permission is required.');
       return;
     }
 
+    // Peer connection.
     _pc = await createPeerConnection(_config);
     for (final track in _localStream!.getTracks()) {
       await _pc!.addTrack(track, _localStream!);
     }
 
     _pc!.onIceCandidate = (candidate) {
-      if (_callId != null) {
+      if (_callId != null && candidate.candidate != null) {
         rt.sendIce(widget.employeeId, _callId!, {
           'candidate': candidate.candidate,
           'sdpMid': candidate.sdpMid,
@@ -108,51 +125,69 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         });
       }
     };
+
     _pc!.onTrack = (event) {
       if (event.streams.isNotEmpty) {
         _remoteRenderer.srcObject = event.streams.first;
-        PushNotifications.instance.stopRingtone();
-        if (mounted) {
-          setState(() {
-            _status = 'Connected';
-            _connectedAt ??= DateTime.now();
-          });
-        }
+        _markConnected();
       }
     };
+
     _pc!.onConnectionState = (state) {
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
-          state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-        _hangUp(notify: false, state: 'Ended');
+      switch (state) {
+        case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+          _markConnected();
+          break;
+        case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+        case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+        case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
+          _hangUp(notify: false, state: 'Ended');
+          break;
+        default:
+          break;
       }
     };
 
     if (widget.outgoing) {
-      setState(() => _status = 'Ringing…');
+      // Caller: create the call row now; wait for callee "ready" before the offer.
       _callId ??= await ref
           .read(chatActionsProvider)
           .startCall(widget.employeeId, widget.kind);
-      final offer = await _pc!.createOffer();
-      await _pc!.setLocalDescription(offer);
-      await rt.sendOffer(widget.employeeId, _callId!, widget.kind, {
-        'sdp': offer.sdp,
-        'type': offer.type,
-      });
     } else {
-      setState(() => _status = 'Incoming…');
+      // Callee: tell the caller we're ready to receive the offer.
+      _callId ??= widget.callId;
+      if (_callId != null) {
+        await rt.signalCallState(widget.employeeId, _callId!, 'ready');
+      }
     }
   }
 
   void _bindSignaling(ChatRealtime rt) {
+    // Callee signalled "ready" -> caller sends the offer.
+    _subs.add(
+      rt.callState.listen((p) async {
+        if (!widget.outgoing) return;
+        if (p.callId != _callId) return;
+        final state = '${p.data['state']}';
+        if (state == 'ready' && !_offerSent) {
+          _offerSent = true;
+          await _sendOffer(rt);
+        }
+      }),
+    );
+
+    // Callee receives the offer -> answers.
     _subs.add(
       rt.callOffer.listen((p) async {
-        if (p.callId != _callId && _callId != null) return;
+        if (_callId != null && p.callId != _callId) return;
         _callId ??= p.callId;
         final sdp = p.data['sdp'] as Map?;
         if (sdp == null || _pc == null) return;
         await _pc!.setRemoteDescription(
           RTCSessionDescription('${sdp['sdp']}', '${sdp['type']}'),
         );
+        _remoteDescriptionSet = true;
+        await _drainCandidates();
         final answer = await _pc!.createAnswer();
         await _pc!.setLocalDescription(answer);
         await rt.sendAnswer(widget.employeeId, _callId!, {
@@ -161,6 +196,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         });
       }),
     );
+
+    // Caller receives the answer.
     _subs.add(
       rt.callAnswer.listen((p) async {
         if (p.callId != _callId) return;
@@ -169,22 +206,31 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         await _pc!.setRemoteDescription(
           RTCSessionDescription('${sdp['sdp']}', '${sdp['type']}'),
         );
+        _remoteDescriptionSet = true;
+        await _drainCandidates();
       }),
     );
+
+    // ICE candidates (buffer until remote description is set).
     _subs.add(
       rt.callIce.listen((p) async {
         if (p.callId != _callId) return;
         final c = p.data['candidate'] as Map?;
         if (c == null || _pc == null) return;
-        await _pc!.addCandidate(
-          RTCIceCandidate(
-            '${c['candidate']}',
-            c['sdpMid'] as String?,
-            (c['sdpMLineIndex'] as num?)?.toInt(),
-          ),
+        final candidate = RTCIceCandidate(
+          '${c['candidate']}',
+          c['sdpMid'] as String?,
+          (c['sdpMLineIndex'] as num?)?.toInt(),
         );
+        if (_remoteDescriptionSet) {
+          await _pc!.addCandidate(candidate);
+        } else {
+          _pendingCandidates.add(candidate);
+        }
       }),
     );
+
+    // Other side ended/declined the call.
     _subs.add(
       rt.callEnded.listen((p) {
         if (p.callId == _callId) _hangUp(notify: false, state: 'Ended');
@@ -192,7 +238,49 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     );
   }
 
+  Future<void> _sendOffer(ChatRealtime rt) async {
+    if (_pc == null || _callId == null) return;
+    final offer = await _pc!.createOffer({
+      'offerToReceiveAudio': true,
+      'offerToReceiveVideo': _isVideo,
+    });
+    await _pc!.setLocalDescription(offer);
+    await rt.sendOffer(widget.employeeId, _callId!, widget.kind, {
+      'sdp': offer.sdp,
+      'type': offer.type,
+    });
+  }
+
+  Future<void> _drainCandidates() async {
+    for (final c in _pendingCandidates) {
+      try {
+        await _pc!.addCandidate(c);
+      } catch (_) {}
+    }
+    _pendingCandidates.clear();
+  }
+
+  void _markConnected() {
+    if (_ended) return;
+    PushNotifications.instance.stopRingtone();
+    // Route audio to the loudspeaker by default so it's audible.
+    Helper.setSpeakerphoneOn(_speaker);
+    if (mounted && _connectedAt == null) {
+      setState(() {
+        _status = 'Connected';
+        _connectedAt = DateTime.now();
+      });
+    }
+  }
+
+  void _fail(String message) {
+    PushNotifications.instance.stopRingtone();
+    if (mounted) setState(() => _status = message);
+  }
+
   Future<void> _hangUp({bool notify = true, String state = 'Ended'}) async {
+    if (_ended) return;
+    _ended = true;
     final seconds = _connectedAt == null
         ? null
         : DateTime.now().difference(_connectedAt!).inSeconds;
@@ -216,6 +304,11 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       await s.cancel();
     }
     _subs.clear();
+    try {
+      for (final t in _localStream?.getTracks() ?? []) {
+        await t.stop();
+      }
+    } catch (_) {}
     await _localStream?.dispose();
     await _pc?.close();
     await _localRenderer.dispose();
