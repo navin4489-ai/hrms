@@ -5,7 +5,9 @@ COPY Wintech.Hrms.Api.csproj ./
 RUN dotnet restore Wintech.Hrms.Api.csproj
 
 COPY . .
-RUN dotnet publish Wintech.Hrms.Api.csproj \
+# Cache-bust token: bump to force Render to rebuild from fresh source (avoids stale COPY layer).
+ARG BUILD_REV=2026-10-25-chat-push-1
+RUN echo "build rev: ${BUILD_REV}" && dotnet publish Wintech.Hrms.Api.csproj \
     --configuration Release \
     --no-restore \
     --output /app/publish

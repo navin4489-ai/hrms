@@ -285,13 +285,43 @@ public sealed class CoreSeeder : IDataSeeder
                 .SingleOrDefaultAsync(e => e.EmployeeNumber == employeeNumber, cancellationToken);
             if (employee is null) continue; // Fresh database: seed accounts are created below.
 
-            var account = await _db.UserAccounts.AsNoTracking()
+            var account = await _db.UserAccounts
                 .SingleOrDefaultAsync(user => user.EmployeeId == employee.Id, cancellationToken);
             if (account is null)
             {
-                _logger.LogWarning("{EmployeeNumber} has no login account; no SuperAdmin assignment was made.",
-                    employeeNumber);
-                continue;
+                // The database was seeded before this account existed (e.g. org created on an
+                // earlier build). Create the login so the SuperAdmin can always sign in.
+                var seedPassword = _configuration["Security:SeedDemoPassword"];
+                if (string.IsNullOrWhiteSpace(seedPassword))
+                {
+                    if (!_environment.IsDevelopment())
+                    {
+                        _logger.LogWarning(
+                            "{EmployeeNumber} has no login account and Security:SeedDemoPassword is unset; cannot create it.",
+                            employeeNumber);
+                        continue;
+                    }
+                    seedPassword = DemoPassword;
+                }
+
+                account = new UserAccount
+                {
+                    Id = Guid.NewGuid(),
+                    UserName = string.Equals(employeeNumber, "EMP001", StringComparison.OrdinalIgnoreCase)
+                        ? "admin"
+                        : employee.WorkEmail,
+                    Email = employee.WorkEmail,
+                    PasswordHash = PasswordHasher.Hash(seedPassword),
+                    EmployeeId = employee.Id,
+                    Status = UserStatus.Active,
+                    MustChangePassword = false,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                _db.UserAccounts.Add(account);
+                await _db.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("Created missing login account '{UserName}' for {EmployeeNumber}.",
+                    account.UserName, employeeNumber);
             }
 
             var superAdminRole = await _db.Roles
