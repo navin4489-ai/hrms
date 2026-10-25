@@ -120,6 +120,7 @@ Roles: `Employee`, `LineManager`, `HRExecutive`, `HRHead`, `PayrollFinance`, `IT
 
 ### POST /auth/refresh — `[AllowAnonymous]` `{ "refreshToken": "..." }` -> same 200 token pair (rotation; reuse revokes the family).
 ### POST /auth/logout `{ "refreshToken": "..." }` -> 204 (idempotent).
+### GET /auth/me -> current profile, roles and permissions from the database (authenticated).
 ### GET /auth/sessions -> `[{ "id", "deviceName", "ipAddress", "createdAt", "lastUsedAt", "current": true }]`
 ### DELETE /auth/sessions/{id} -> 204 (remote revocation of that refresh session; access token dies within its 15-min TTL).
 ### POST /auth/forgot-password `{ "username" }` -> 202 always (FR-EMP-002, no existence leak). Dev: token is logged by the API.
@@ -205,7 +206,7 @@ Phone/personal fields are never exposed in the directory for non-privileged call
 ### GET /employees/{id}/history — `employee.view`.
 ### GET /employees — `employee.view` (admin list; filters: `q`, `status`, `departmentId`, `locationId`, paged) -> `{ items: [{ "employeeId","employeeNumber","displayName","workEmail","designation","department","location","status","managerName","joiningDate" }], page, ... }`.
 ### POST /employees — `employee.create` -> 201 employee detail. Body: `{ "employeeNumber"?, "firstName", "lastName", "workEmail", "phone"?, "joinDate", "designationId", "departmentId", "locationId", "managerId"?, "employmentType", "legalEntityId" }` | 409 duplicate employee number/email.
-### PUT /employees/{id} — `employee.edit` (writes employment history for reporting/payroll-relevant fields, FR-ADM-026).
+### PUT /employees/{id} — `employee.edit` (writes employment history for reporting/payroll-relevant fields, FR-ADM-026). Optional `clearPhone`, `clearManager`, and `clearCostCentre` flags explicitly clear those nullable fields.
 ### POST /employees/{id}/status — `employee.manage`: `{ "status": "Active|Suspended|Terminated", "effectiveDate", "reason" }` -> 200 (FR-ADM-024, BR-008). Terminated users lose access at the effective time.
 
 ### GET /org-units -> `[{ "id", "code", "name", "type": "Entity|BusinessUnit|Department|Team", "parentId", "managerName", "status" }]`
@@ -249,6 +250,8 @@ Phone/personal fields are never exposed in the directory for non-privileged call
 
 ### GET /shifts -> `[{ "id", "name", "startTime", "endTime", "graceMinutes", "breakMinutes", "weekDays": ["Mon",...] }]`
 ### GET /shifts/roster?from=&to= -> `[{ "date", "shiftId", "shiftName", "startTime", "endTime" }]` (FR-EMP-050)
+### GET /admin/attendance/dashboard?from=&to=&departmentId=&locationId= -> organization attendance totals and daily/status/leave/department breakdowns (`attendance.manage`).
+### GET /admin/attendance/punch-events?from=&to=&employeeId=&departmentId=&locationId=&page=&pageSize= -> captured punch details, filtered by employee and/or organization dimensions (`attendance.manage`).
 ### POST /shifts/swap-requests — FR-EMP-051 `{ "rosterDate", "proposedWithEmployeeId", "proposedShiftId"?, "reason" }` -> 201 `{id, approvalTaskId}`
 ### GET /holidays?year=YYYY -> `[{ "date", "name", "type": "Public|Optional|Shutdown", "locationId" }]`
 

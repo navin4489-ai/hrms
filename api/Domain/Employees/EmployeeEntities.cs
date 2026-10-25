@@ -1,3 +1,4 @@
+using Wintech.Hrms.Api.Common.Tenancy;
 using Wintech.Hrms.Api.Domain.Organization;
 
 namespace Wintech.Hrms.Api.Domain.Employees;
@@ -52,7 +53,7 @@ public enum ProfileChangeStatus
 }
 
 /// <summary>Employee master record (PII). One canonical employee number per BR-001.</summary>
-public class Employee
+public class Employee : IOrgOwned
 {
     public Guid Id { get; set; }
     public string EmployeeNumber { get; set; } = string.Empty;

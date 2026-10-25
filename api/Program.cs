@@ -15,6 +15,7 @@ using Wintech.Hrms.Api.Common.ErrorHandling;
 using Wintech.Hrms.Api.Common.Notifications;
 using Wintech.Hrms.Api.Common.RateLimiting;
 using Wintech.Hrms.Api.Common.Registration;
+using Wintech.Hrms.Api.Common.Tenancy;
 using Wintech.Hrms.Api.Common.Time;
 using Wintech.Hrms.Api.Data;
 using Wintech.Hrms.Api.Security.Auth;
@@ -45,6 +46,12 @@ builder.Services.Configure<FileStorageOptions>(configuration.GetSection(FileStor
 // ---------------------------------------------------------------- database
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
+    // Tenant isolation puts a global query filter on Employee (and other IOrgOwned roots) while its
+    // required children are reached only through that filtered parent — an intentional design, so the
+    // "required navigation with query filter" validation warning is suppressed rather than erroring.
+    options.ConfigureWarnings(w =>
+        w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.CoreEventId.PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning));
+
     if (databaseOptions.IsSqlServer)
         options.UseSqlServer(databaseOptions.ConnectionString,
             sql => sql.EnableRetryOnFailure(maxRetryCount: 3, maxRetryDelay: TimeSpan.FromSeconds(5), errorNumbersToAdd: null));
@@ -193,6 +200,8 @@ builder.Services.AddCors(options =>
 builder.Services.AddHrmsRateLimiter(rateLimitOptions);
 builder.Services.AddScoped<IClock, SystemClock>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
+builder.Services.AddScoped<TenantContext>();
+builder.Services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
 // Fallback notification publisher; the Notifications module's implementation registers later and wins (last registration).
 builder.Services.AddScoped<INotificationPublisher, NoopNotificationPublisher>();
 // Auto-registers every IAppService implementation (auth, leave, cases, ...) and IDataSeeder — no edits needed per module.
@@ -219,6 +228,7 @@ app.UseRouting();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<AccountStatusMiddleware>(); // FR-EMP-006 / BR-008: inactive accounts are cut off immediately
+app.UseMiddleware<Wintech.Hrms.Api.Common.Tenancy.TenantResolutionMiddleware>(); // row-level tenant isolation
 app.UseAuthorization();
 
 app.MapControllers();

@@ -72,6 +72,14 @@ public sealed class AuthController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>Get the caller's current database-backed roles and permissions.</summary>
+    [HttpGet("me")]
+    [Authorize]
+    [ProducesResponseType(typeof(CurrentUserSummary), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<CurrentUserSummary>> CurrentUser(CancellationToken cancellationToken)
+        => Ok(await _auth.GetCurrentUserSummaryAsync(CurrentUserId, cancellationToken));
+
     /// <summary>List this user's active device sessions (FR-EMP-004).</summary>
     [HttpGet("sessions")]
     [Authorize]

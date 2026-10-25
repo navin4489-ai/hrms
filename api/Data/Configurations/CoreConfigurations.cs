@@ -23,6 +23,28 @@ public sealed class OrganizationConfiguration : IEntityTypeConfiguration<Organiz
     }
 }
 
+public sealed class OrgModuleSettingConfiguration : IEntityTypeConfiguration<OrgModuleSetting>
+{
+    public void Configure(EntityTypeBuilder<OrgModuleSetting> builder)
+    {
+        builder.ToTable("OrgModuleSettings");
+        builder.HasKey(m => m.Id);
+        builder.Property(m => m.ModuleKey).HasMaxLength(50).IsRequired();
+        builder.HasIndex(m => new { m.OrganizationId, m.ModuleKey }).IsUnique();
+    }
+}
+
+public sealed class OrgEmployeeCodeSettingConfiguration : IEntityTypeConfiguration<OrgEmployeeCodeSetting>
+{
+    public void Configure(EntityTypeBuilder<OrgEmployeeCodeSetting> builder)
+    {
+        builder.ToTable("OrgEmployeeCodeSettings");
+        builder.HasKey(s => s.Id);
+        builder.Property(s => s.Prefix).HasMaxLength(50).IsRequired();
+        builder.HasIndex(s => s.OrganizationId).IsUnique();
+    }
+}
+
 public sealed class OrgUnitConfiguration : IEntityTypeConfiguration<OrgUnit>
 {
     public void Configure(EntityTypeBuilder<OrgUnit> builder)
@@ -31,7 +53,7 @@ public sealed class OrgUnitConfiguration : IEntityTypeConfiguration<OrgUnit>
         builder.HasKey(u => u.Id);
         builder.Property(u => u.Code).HasMaxLength(50).IsRequired();
         builder.Property(u => u.Name).HasMaxLength(200).IsRequired();
-        builder.HasIndex(u => u.Code).IsUnique();
+        builder.HasIndex(u => new { u.OrganizationId, u.Code }).IsUnique();
         builder.HasIndex(u => u.Type);
         builder.Property(u => u.ManagerId);
         builder.HasOne(u => u.Parent)
@@ -52,7 +74,7 @@ public sealed class LocationConfiguration : IEntityTypeConfiguration<Location>
         builder.Property(l => l.City).HasMaxLength(100).IsRequired();
         builder.Property(l => l.Country).HasMaxLength(2);
         builder.Property(l => l.TimeZone).HasMaxLength(100);
-        builder.HasIndex(l => l.Code).IsUnique();
+        builder.HasIndex(l => new { l.OrganizationId, l.Code }).IsUnique();
     }
 }
 
@@ -65,7 +87,7 @@ public sealed class DesignationConfiguration : IEntityTypeConfiguration<Designat
         builder.Property(d => d.Code).HasMaxLength(50).IsRequired();
         builder.Property(d => d.Name).HasMaxLength(200).IsRequired();
         builder.Property(d => d.Grade).HasMaxLength(50);
-        builder.HasIndex(d => d.Code).IsUnique();
+        builder.HasIndex(d => new { d.OrganizationId, d.Code }).IsUnique();
     }
 }
 
@@ -81,7 +103,7 @@ public sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.Property(e => e.LastName).HasMaxLength(100).IsRequired();
         builder.Property(e => e.DisplayName).HasMaxLength(200).IsRequired();
         builder.Property(e => e.WorkEmail).HasMaxLength(320).IsRequired();
-        builder.HasIndex(e => e.WorkEmail).IsUnique();
+        builder.HasIndex(e => new { e.OrganizationId, e.WorkEmail }).IsUnique();
         builder.Property(e => e.Phone).HasMaxLength(50);
         builder.Property(e => e.CostCentre).HasMaxLength(50);
         builder.Property(e => e.PhotoStorageKey).HasMaxLength(400);

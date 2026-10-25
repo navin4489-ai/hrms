@@ -4,6 +4,7 @@ using Wintech.Hrms.Api.Common.Auditing;
 using Wintech.Hrms.Api.Common.CurrentUser;
 using Wintech.Hrms.Api.Common.ErrorHandling;
 using Wintech.Hrms.Api.Common.Paging;
+using Wintech.Hrms.Api.Common.Tenancy;
 using Wintech.Hrms.Api.Common.Time;
 using Wintech.Hrms.Api.Data;
 using Wintech.Hrms.Api.Domain.Employees;
@@ -26,15 +27,17 @@ public sealed class EmployeesService : IEmployeesService
 
     private readonly AppDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly ITenantContext _tenant;
     private readonly IClock _clock;
     private readonly IAuditService _audit;
     private readonly ILogger<EmployeesService> _logger;
 
-    public EmployeesService(AppDbContext db, ICurrentUser currentUser, IClock clock, IAuditService audit,
-        ILogger<EmployeesService> logger)
+    public EmployeesService(AppDbContext db, ICurrentUser currentUser, ITenantContext tenant, IClock clock,
+        IAuditService audit, ILogger<EmployeesService> logger)
     {
         _db = db;
         _currentUser = currentUser;
+        _tenant = tenant;
         _clock = clock;
         _audit = audit;
         _logger = logger;
@@ -234,24 +237,24 @@ public sealed class EmployeesService : IEmployeesService
 
         if (errors.Count > 0) throw Validation(errors);
 
-        var organizationId = await _db.Organizations.AsNoTracking()
-            .Select(o => o.Id)
-            .FirstOrDefaultAsync(cancellationToken);
+        var organizationId = _tenant.OrganizationId ?? await _db.Organizations.AsNoTracking()
+            .Select(o => (Guid?)o.Id)
+            .FirstOrDefaultAsync(cancellationToken) ?? Guid.Empty;
         if (organizationId == Guid.Empty)
-            throw new NotFoundException("No organization is configured.");
+            throw new NotFoundException("No organization is in scope. SuperAdmins must select a target organization.");
 
         var employeeNumber = string.IsNullOrWhiteSpace(request.EmployeeNumber)
-            ? await GenerateEmployeeNumberAsync(cancellationToken)
+            ? await GenerateEmployeeNumberAsync(organizationId, cancellationToken)
             : request.EmployeeNumber.Trim();
 
         var email = request.WorkEmail.Trim();
 
-        // BR-001 / FR-ADM-021: one canonical number, no duplicate identity (409).
-        if (await _db.Employees.AsNoTracking()
+        // BR-001 / FR-ADM-021: one canonical number (globally unique), no duplicate email within the org (409).
+        if (await _db.Employees.AsNoTracking().IgnoreQueryFilters()
                 .AnyAsync(e => e.EmployeeNumber.ToLower() == employeeNumber.ToLower(), cancellationToken))
             throw new ConflictException($"Employee number '{employeeNumber}' already exists.");
-        if (await _db.Employees.AsNoTracking()
-                .AnyAsync(e => e.WorkEmail.ToLower() == email.ToLower(), cancellationToken))
+        if (await _db.Employees.AsNoTracking().IgnoreQueryFilters()
+                .AnyAsync(e => e.OrganizationId == organizationId && e.WorkEmail.ToLower() == email.ToLower(), cancellationToken))
             throw new ConflictException($"An employee with work email '{email}' already exists.");
 
         var employee = new Employee
@@ -349,7 +352,12 @@ public sealed class EmployeesService : IEmployeesService
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(request.Phone))
+        if (request.ClearPhone && employee.Phone is not null)
+        {
+            employee.Phone = null;
+            changed.Add("phone");
+        }
+        else if (!string.IsNullOrWhiteSpace(request.Phone))
         {
             employee.Phone = request.Phone.Trim();
             changed.Add("phone");
@@ -386,7 +394,15 @@ public sealed class EmployeesService : IEmployeesService
             changed.Add("location");
         }
 
-        if (request.ManagerId.HasValue && request.ManagerId.Value != employee.ManagerId)
+        if (request.ClearManager && employee.ManagerId is { } currentManagerId)
+        {
+            var names = await EmployeeNamesAsync([currentManagerId], cancellationToken);
+            var oldName = names.GetValueOrDefault(currentManagerId, "(unknown)");
+            employee.ManagerId = null;
+            Record(HistoryEventType.ManagerChange, oldName, "(none)");
+            changed.Add("manager");
+        }
+        else if (request.ManagerId.HasValue && request.ManagerId.Value != employee.ManagerId)
         {
             var managerIds = new List<Guid>();
             if (employee.ManagerId.HasValue) managerIds.Add(employee.ManagerId.Value);
@@ -409,7 +425,12 @@ public sealed class EmployeesService : IEmployeesService
             changed.Add("employmentType");
         }
 
-        if (!string.IsNullOrWhiteSpace(request.CostCentre))
+        if (request.ClearCostCentre && employee.CostCentre is not null)
+        {
+            employee.CostCentre = null;
+            changed.Add("costCentre");
+        }
+        else if (!string.IsNullOrWhiteSpace(request.CostCentre))
         {
             employee.CostCentre = request.CostCentre.Trim();
             changed.Add("costCentre");
@@ -631,21 +652,47 @@ public sealed class EmployeesService : IEmployeesService
         };
     }
 
-    private async Task<string> GenerateEmployeeNumberAsync(CancellationToken cancellationToken)
+    private async Task<string> GenerateEmployeeNumberAsync(Guid organizationId, CancellationToken cancellationToken)
     {
-        var numbers = await _db.Employees.AsNoTracking()
+        // Per-org code settings: prefix + zero-padded sequence (e.g. WINTECH-EMP001). Created lazily.
+        var setting = await _db.Set<OrgEmployeeCodeSetting>()
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.OrganizationId == organizationId, cancellationToken);
+
+        if (setting is null)
+        {
+            var orgCode = await _db.Organizations.AsNoTracking().IgnoreQueryFilters()
+                .Where(o => o.Id == organizationId)
+                .Select(o => o.Code)
+                .FirstOrDefaultAsync(cancellationToken) ?? "ORG";
+            setting = new OrgEmployeeCodeSetting
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = organizationId,
+                Prefix = $"{orgCode}-EMP",
+                Padding = 3,
+                NextSequence = 1
+            };
+            _db.Add(setting);
+        }
+
+        // Guard against stale NextSequence by scanning existing codes for this org.
+        var numbers = await _db.Employees.AsNoTracking().IgnoreQueryFilters()
+            .Where(e => e.OrganizationId == organizationId)
             .Select(e => e.EmployeeNumber)
             .ToListAsync(cancellationToken);
 
-        var max = 0;
+        var max = setting.NextSequence - 1;
         foreach (var number in numbers)
         {
-            if (number.StartsWith("EMP", StringComparison.OrdinalIgnoreCase) &&
-                int.TryParse(number.AsSpan(3), out var suffix))
+            if (number.StartsWith(setting.Prefix, StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(number.AsSpan(setting.Prefix.Length), out var suffix))
                 max = Math.Max(max, suffix);
         }
 
-        return $"EMP{max + 1:D3}";
+        var next = max + 1;
+        setting.NextSequence = next + 1;
+        return $"{setting.Prefix}{next.ToString().PadLeft(setting.Padding, '0')}";
     }
 
     private async Task<Dictionary<Guid, string>> DesignationNamesAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct) =>

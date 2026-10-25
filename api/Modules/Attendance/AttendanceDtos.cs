@@ -73,6 +73,23 @@ public sealed record PunchResponse(
     AttendanceDayStatus Status,
     string Message);
 
+/// <summary>Multipart punch form allowing an optional selfie plus geolocation.</summary>
+public sealed class PunchForm
+{
+    [StringLength(30)]
+    public string Source { get; set; } = "Mobile";
+
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public double? AccuracyMeters { get; set; }
+
+    /// <summary>Optional selfie image captured at punch time (stored privately, admin-only).</summary>
+    public IFormFile? Photo { get; set; }
+}
+
+/// <summary>Capture settings an employee's app reads before punching (what to collect).</summary>
+public sealed record AttendanceCaptureSettingsDto(bool CaptureLocation, bool CapturePhoto);
+
 // ------------------------------------------------------------------ shifts, roster, swap
 
 public sealed record ShiftDto(
@@ -240,3 +257,51 @@ public sealed record AttendanceExceptionRow(
     DateOnly WorkDate,
     string Exception,
     string Detail);
+
+// ------------------------------------------------------------------ admin dashboard & capture (admin-only)
+
+/// <summary>Attendance + leave analytics for the admin dashboard (FR-ADM-001/041).</summary>
+public sealed record AdminAttendanceDashboardDto(
+    DateOnly From,
+    DateOnly To,
+    AdminAttendanceTotals Totals,
+    IReadOnlyList<AdminAttendanceDayPoint> Daily,
+    IReadOnlyList<AdminAttendanceStatusSlice> StatusBreakdown,
+    IReadOnlyList<AdminLeaveTypeSlice> LeaveByType,
+    IReadOnlyList<AdminDepartmentAttendance> ByDepartment);
+
+public sealed record AdminAttendanceTotals(
+    int Employees,
+    int Present,
+    int Absent,
+    int Late,
+    int HalfDay,
+    int OnLeave,
+    int PendingCorrections,
+    decimal TotalWorkedHours,
+    decimal TotalOvertimeHours);
+
+public sealed record AdminAttendanceDayPoint(DateOnly Date, int Present, int Absent, int Late, int OnLeave);
+
+public sealed record AdminAttendanceStatusSlice(string Status, int Count);
+
+public sealed record AdminLeaveTypeSlice(string LeaveType, decimal Days, int Requests);
+
+public sealed record AdminDepartmentAttendance(string Department, int Present, int Absent, int Late);
+
+/// <summary>Admin-only captured punch record with location, selfie and timestamp.</summary>
+public sealed record AdminPunchEventDto(
+    Guid Id,
+    Guid EmployeeId,
+    string EmployeeNumber,
+    string EmployeeName,
+    string? Department,
+    DateOnly WorkDate,
+    string Direction,
+    DateTime CapturedAtUtc,
+    [property: JsonConverter(typeof(HhMmTimeOnlyConverter))] TimeOnly LocalTime,
+    double? Latitude,
+    double? Longitude,
+    double? AccuracyMeters,
+    bool HasPhoto,
+    string Source);

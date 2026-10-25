@@ -175,3 +175,41 @@ public class CompanyHoliday
     /// <summary>Null = company-wide holiday; otherwise only applies at that location.</summary>
     public Guid? LocationId { get; set; }
 }
+
+/// <summary>Direction of a captured punch event.</summary>
+public enum PunchDirection
+{
+    CheckIn = 0,
+    CheckOut = 1
+}
+
+/// <summary>
+/// Immutable capture record for a single check-in or check-out punch (admin-only visibility).
+/// Stores the geolocation, selfie reference and timestamp so administrators can audit presence.
+/// Employees never see this data; it is surfaced only through admin attendance endpoints.
+/// </summary>
+public class AttendancePunchEvent
+{
+    public Guid Id { get; set; }
+    public Guid EmployeeId { get; set; }
+    public Employee? Employee { get; set; }
+    public Guid AttendanceRecordId { get; set; }
+    public DateOnly WorkDate { get; set; }
+    public PunchDirection Direction { get; set; }
+
+    /// <summary>Server UTC timestamp when the punch was recorded.</summary>
+    public DateTime CapturedAtUtc { get; set; }
+
+    /// <summary>Organisation-local punch time (Asia/Kolkata), mirrors the attendance record.</summary>
+    public TimeOnly LocalTime { get; set; }
+
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public double? AccuracyMeters { get; set; }
+
+    /// <summary>Private-store key for the selfie image; null when no image was provided or capture was photo-off.</summary>
+    public string? PhotoStorageKey { get; set; }
+    public string? PhotoContentType { get; set; }
+
+    public AttendanceSource Source { get; set; } = AttendanceSource.Mobile;
+}

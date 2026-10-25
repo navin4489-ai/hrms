@@ -1,5 +1,6 @@
 using System.Reflection;
 using Microsoft.EntityFrameworkCore;
+using Wintech.Hrms.Api.Common.Tenancy;
 using Wintech.Hrms.Api.Domain.Audit;
 using Wintech.Hrms.Api.Domain.Approvals;
 using Wintech.Hrms.Api.Domain.Employees;
@@ -19,8 +20,15 @@ namespace Wintech.Hrms.Api.Data;
 /// </summary>
 public class AppDbContext : DbContext
 {
+    private readonly ITenantContext? _tenant;
+
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
+    }
+
+    public AppDbContext(DbContextOptions<AppDbContext> options, ITenantContext tenant) : base(options)
+    {
+        _tenant = tenant;
     }
 
     // ---- Foundation entities (owned by the core; feature modules use Set<T>() for theirs) ----
@@ -68,7 +76,42 @@ public class AppDbContext : DbContext
 
         // 2) Explicit configuration (keys, indexes, relations, delete behaviour) — core + module configs.
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
+        // 3) Tenant isolation: every IOrgOwned entity gets an indexed OrganizationId column and a
+        //    global query filter restricting reads to the caller's organization. SuperAdmins and
+        //    seeding/background work bypass the filter via ITenantContext.BypassFilter.
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            if (!typeof(IOrgOwned).IsAssignableFrom(entityType.ClrType)) continue;
+
+            modelBuilder.Entity(entityType.ClrType).HasIndex(nameof(IOrgOwned.OrganizationId));
+
+            var parameter = System.Linq.Expressions.Expression.Parameter(entityType.ClrType, "e");
+            var orgProperty = System.Linq.Expressions.Expression.Property(parameter, nameof(IOrgOwned.OrganizationId));
+
+            // Reference context properties so EF parameterizes the current request's scope.
+            var contextConstant = System.Linq.Expressions.Expression.Constant(this);
+            var bypassFilter = System.Linq.Expressions.Expression.Property(
+                contextConstant, nameof(BypassTenantFilter));
+            var tenantId = System.Linq.Expressions.Expression.Property(
+                contextConstant, nameof(CurrentTenantOrganizationId));
+            var tenantIdHasValue = System.Linq.Expressions.Expression.Property(
+                tenantId, nameof(Nullable<Guid>.HasValue));
+            var sameOrganization = System.Linq.Expressions.Expression.Equal(
+                System.Linq.Expressions.Expression.Convert(orgProperty, typeof(Guid?)), tenantId);
+            var tenantMatches = System.Linq.Expressions.Expression.AndAlso(tenantIdHasValue, sameOrganization);
+            var tenantAccess = System.Linq.Expressions.Expression.OrElse(bypassFilter, tenantMatches);
+
+            var lambda = System.Linq.Expressions.Expression.Lambda(tenantAccess, parameter);
+            modelBuilder.Entity(entityType.ClrType).HasQueryFilter(lambda);
+        }
     }
+
+    /// <summary>True for startup/background work and explicit SuperAdmin cross-tenant requests.</summary>
+    private bool BypassTenantFilter => _tenant is null || !_tenant.IsScopeSet || _tenant.BypassFilter;
+
+    /// <summary>Current organization scope, read as a query-filter parameter by EF Core.</summary>
+    private Guid? CurrentTenantOrganizationId => _tenant?.OrganizationId;
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -102,6 +145,17 @@ public class AppDbContext : DbContext
             var displayName = $"{employee.FirstName} {employee.LastName}".Trim();
             if (!string.Equals(employee.DisplayName, displayName, StringComparison.Ordinal))
                 employee.DisplayName = displayName;
+        }
+
+        // Stamp OrganizationId on new tenant-owned rows from the ambient scope when not already set.
+        // This also applies to SuperAdmins who target an organization via the X-Organization-Id header.
+        if (_tenant is { OrganizationId: { } scopeOrg } && scopeOrg != Guid.Empty)
+        {
+            foreach (var entry in ChangeTracker.Entries<IOrgOwned>())
+            {
+                if (entry.State == EntityState.Added && entry.Entity.OrganizationId == Guid.Empty)
+                    entry.Entity.OrganizationId = scopeOrg;
+            }
         }
     }
 }

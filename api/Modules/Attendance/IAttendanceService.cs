@@ -21,5 +21,20 @@ public interface IAttendanceService : IAppService
         CancellationToken cancellationToken = default);
 
     /// <summary>Check-in/check-out punch with duplicate/window rules (FR-EMP-031/032/037).</summary>
-    Task<PunchResponse> PunchAsync(PunchRequest request, CancellationToken cancellationToken = default);
+    Task<PunchResponse> PunchAsync(PunchForm form, CancellationToken cancellationToken = default);
+
+    /// <summary>Capture settings the employee app reads before punching (location/photo on-off).</summary>
+    Task<AttendanceCaptureSettingsDto> GetCaptureSettingsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Admin attendance + leave analytics over a date range (FR-ADM-001/041) — admin-only.</summary>
+    Task<AdminAttendanceDashboardDto> GetAdminDashboardAsync(DateOnly from, DateOnly to,
+        Guid? departmentId, Guid? locationId, CancellationToken cancellationToken = default);
+
+    /// <summary>Admin-only list of captured punch events (location, selfie, timestamp).</summary>
+    Task<PagedResult<AdminPunchEventDto>> GetPunchEventsAsync(DateOnly from, DateOnly to,
+        Guid? employeeId, Guid? departmentId, Guid? locationId, PageRequest page,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Admin-only download of a punch selfie by event id.</summary>
+    Task<Common.Files.StoredFileStream> OpenPunchPhotoAsync(Guid eventId, CancellationToken cancellationToken = default);
 }

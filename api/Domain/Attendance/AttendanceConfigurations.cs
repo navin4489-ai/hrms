@@ -112,3 +112,22 @@ public sealed class CompanyHolidayConfiguration : IEntityTypeConfiguration<Compa
         builder.HasIndex(h => h.Date);
     }
 }
+
+public sealed class AttendancePunchEventConfiguration : IEntityTypeConfiguration<AttendancePunchEvent>
+{
+    public void Configure(EntityTypeBuilder<AttendancePunchEvent> builder)
+    {
+        builder.ToTable("att_punch_events");
+        builder.HasKey(e => e.Id);
+        builder.Property(e => e.PhotoStorageKey).HasMaxLength(300);
+        builder.Property(e => e.PhotoContentType).HasMaxLength(100);
+        builder.HasIndex(e => new { e.EmployeeId, e.WorkDate });
+        builder.HasIndex(e => e.WorkDate);
+        builder.HasIndex(e => e.CapturedAtUtc);
+
+        builder.HasOne(e => e.Employee)
+            .WithMany()
+            .HasForeignKey(e => e.EmployeeId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}

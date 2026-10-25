@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Wintech.Hrms.Api.Common.Auditing;
 using Wintech.Hrms.Api.Common.ErrorHandling;
+using Wintech.Hrms.Api.Common.Tenancy;
 using Wintech.Hrms.Api.Data;
 using Wintech.Hrms.Api.Domain.Organization;
 
@@ -10,13 +11,18 @@ namespace Wintech.Hrms.Api.Modules.Employees;
 public sealed class OrgDataService : IOrgDataService
 {
     private readonly AppDbContext _db;
+    private readonly ITenantContext _tenant;
     private readonly IAuditService _audit;
 
-    public OrgDataService(AppDbContext db, IAuditService audit)
+    public OrgDataService(AppDbContext db, ITenantContext tenant, IAuditService audit)
     {
         _db = db;
+        _tenant = tenant;
         _audit = audit;
     }
+
+    /// <summary>The org a duplicate check / new row must be scoped to (SuperAdmins target via header).</summary>
+    private Guid ScopeOrgId => _tenant.RequireOrganizationId();
 
     public async Task<IReadOnlyList<OrgUnitDto>> GetOrgUnitsAsync(CancellationToken cancellationToken = default)
     {
@@ -83,7 +89,8 @@ public sealed class OrgDataService : IOrgDataService
         ValidateDateRange(request.EffectiveFrom, request.EffectiveTo);
         await ValidateOrgUnitReferencesAsync(request.ParentId, request.ManagerId, null, cancellationToken);
         var code = request.Code.Trim();
-        if (await _db.OrgUnits.AnyAsync(unit => unit.Code.ToLower() == code.ToLower(), cancellationToken))
+        var orgId = ScopeOrgId;
+        if (await _db.OrgUnits.AnyAsync(unit => unit.OrganizationId == orgId && unit.Code.ToLower() == code.ToLower(), cancellationToken))
             throw new ConflictException($"An organization unit with code '{code}' already exists.");
 
         var unit = new OrgUnit
@@ -116,6 +123,7 @@ public sealed class OrgDataService : IOrgDataService
         ValidateDateRange(request.EffectiveFrom, request.EffectiveTo);
         await ValidateOrgUnitReferencesAsync(request.ParentId, request.ManagerId, id, cancellationToken);
         if (await _db.OrgUnits.AnyAsync(item => item.Id != id &&
+                item.OrganizationId == unit.OrganizationId &&
                 item.Code.ToLower() == request.Code.Trim().ToLower(), cancellationToken))
             throw new ConflictException($"An organization unit with code '{request.Code.Trim()}' already exists.");
 
@@ -141,7 +149,8 @@ public sealed class OrgDataService : IOrgDataService
         CancellationToken cancellationToken = default)
     {
         var code = request.Code.Trim();
-        if (await _db.Locations.AnyAsync(item => item.Code.ToLower() == code.ToLower(), cancellationToken))
+        var orgId = ScopeOrgId;
+        if (await _db.Locations.AnyAsync(item => item.OrganizationId == orgId && item.Code.ToLower() == code.ToLower(), cancellationToken))
             throw new ConflictException($"A location with code '{code}' already exists.");
         var location = new Location
         {
@@ -168,7 +177,7 @@ public sealed class OrgDataService : IOrgDataService
         var location = await _db.Locations.FirstOrDefaultAsync(item => item.Id == id, cancellationToken)
             ?? throw new NotFoundException("Location not found.");
         var code = request.Code.Trim();
-        if (await _db.Locations.AnyAsync(item => item.Id != id && item.Code.ToLower() == code.ToLower(), cancellationToken))
+        if (await _db.Locations.AnyAsync(item => item.Id != id && item.OrganizationId == location.OrganizationId && item.Code.ToLower() == code.ToLower(), cancellationToken))
             throw new ConflictException($"A location with code '{code}' already exists.");
         var old = new { location.Code, location.Name, location.City, location.Country, location.TimeZone, location.Status };
         location.Code = code;
@@ -190,7 +199,8 @@ public sealed class OrgDataService : IOrgDataService
         CancellationToken cancellationToken = default)
     {
         var code = request.Code.Trim();
-        if (await _db.Designations.AnyAsync(item => item.Code.ToLower() == code.ToLower(), cancellationToken))
+        var orgId = ScopeOrgId;
+        if (await _db.Designations.AnyAsync(item => item.OrganizationId == orgId && item.Code.ToLower() == code.ToLower(), cancellationToken))
             throw new ConflictException($"A designation with code '{code}' already exists.");
         var designation = new Designation
         {
@@ -215,7 +225,7 @@ public sealed class OrgDataService : IOrgDataService
         var designation = await _db.Designations.FirstOrDefaultAsync(item => item.Id == id, cancellationToken)
             ?? throw new NotFoundException("Designation not found.");
         var code = request.Code.Trim();
-        if (await _db.Designations.AnyAsync(item => item.Id != id && item.Code.ToLower() == code.ToLower(), cancellationToken))
+        if (await _db.Designations.AnyAsync(item => item.Id != id && item.OrganizationId == designation.OrganizationId && item.Code.ToLower() == code.ToLower(), cancellationToken))
             throw new ConflictException($"A designation with code '{code}' already exists.");
         var old = new { designation.Code, designation.Name, designation.Grade, designation.Status };
         designation.Code = code;

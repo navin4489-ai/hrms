@@ -62,7 +62,6 @@ public sealed class CreateEmployeeRequest
     public Guid DepartmentId { get; init; }
     public Guid LocationId { get; init; }
     public Guid? ManagerId { get; init; }
-
     public EmploymentType EmploymentType { get; init; } = EmploymentType.FullTime;
 
     /// <summary>Legal-entity org unit the employee belongs to (single-tenant MVP).</summary>
@@ -85,14 +84,19 @@ public sealed class UpdateEmployeeRequest
     [StringLength(50)]
     public string? Phone { get; init; }
 
+    public bool ClearPhone { get; init; }
+
     public Guid? DesignationId { get; init; }
     public Guid? DepartmentId { get; init; }
     public Guid? LocationId { get; init; }
     public Guid? ManagerId { get; init; }
+    public bool ClearManager { get; init; }
     public EmploymentType? EmploymentType { get; init; }
 
     [StringLength(50)]
     public string? CostCentre { get; init; }
+
+    public bool ClearCostCentre { get; init; }
 
     public DateOnly? ProbationEndDate { get; init; }
 

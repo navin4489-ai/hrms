@@ -57,7 +57,7 @@ public sealed class CoreSeeder : IDataSeeder
         _db.Organizations.Add(organization);
 
         // ---- reference data -------------------------------------------------
-        var legalEntity = new OrgUnit { Id = Id(10), Code = "WSP", Name = organization.Name, Type = OrgUnitType.LegalEntity };
+        var legalEntity = new OrgUnit { Id = Id(10), OrganizationId = organization.Id, Code = "WSP", Name = organization.Name, Type = OrgUnitType.LegalEntity };
         var departments = new List<(string Code, string Name, Guid Id)>
         {
             ("OPS", "Operations", Id(11)), ("ENG", "Engineering", Id(12)), ("HR", "Human Resources", Id(13)),
@@ -66,28 +66,51 @@ public sealed class CoreSeeder : IDataSeeder
         _db.OrgUnits.Add(legalEntity);
         _db.OrgUnits.AddRange(departments.Select(d => new OrgUnit
         {
-            Id = d.Id, Code = d.Code, Name = d.Name, Type = OrgUnitType.Department,
+            Id = d.Id, OrganizationId = organization.Id, Code = d.Code, Name = d.Name, Type = OrgUnitType.Department,
             ParentId = legalEntity.Id, Status = ReferenceStatus.Active
         }));
 
         var locations = new[]
         {
-            new Location { Id = Id(20), Code = "BLR", Name = "Bengaluru HQ", City = "Bengaluru", Country = "IN", TimeZone = "Asia/Kolkata" },
-            new Location { Id = Id(21), Code = "MUM", Name = "Mumbai Office", City = "Mumbai", Country = "IN", TimeZone = "Asia/Kolkata" },
-            new Location { Id = Id(22), Code = "REM", Name = "Remote", City = "Distributed", Country = "IN", TimeZone = "Asia/Kolkata" }
+            new Location { Id = Id(20), OrganizationId = organization.Id, Code = "BLR", Name = "Bengaluru HQ", City = "Bengaluru", Country = "IN", TimeZone = "Asia/Kolkata" },
+            new Location { Id = Id(21), OrganizationId = organization.Id, Code = "MUM", Name = "Mumbai Office", City = "Mumbai", Country = "IN", TimeZone = "Asia/Kolkata" },
+            new Location { Id = Id(22), OrganizationId = organization.Id, Code = "REM", Name = "Remote", City = "Distributed", Country = "IN", TimeZone = "Asia/Kolkata" }
         };
         _db.Locations.AddRange(locations);
 
         var designations = new[]
         {
-            new Designation { Id = Id(30), Code = "SE", Name = "Software Engineer", Grade = "P2" },
-            new Designation { Id = Id(31), Code = "SRSE", Name = "Senior Software Engineer", Grade = "P3" },
-            new Designation { Id = Id(32), Code = "HREX", Name = "HR Executive", Grade = "P2" },
-            new Designation { Id = Id(33), Code = "ACC", Name = "Accountant", Grade = "P2" },
-            new Designation { Id = Id(34), Code = "SALEX", Name = "Sales Executive", Grade = "P2" },
-            new Designation { Id = Id(35), Code = "MGR", Name = "Manager", Grade = "M1" }
+            new Designation { Id = Id(30), OrganizationId = organization.Id, Code = "SE", Name = "Software Engineer", Grade = "P2" },
+            new Designation { Id = Id(31), OrganizationId = organization.Id, Code = "SRSE", Name = "Senior Software Engineer", Grade = "P3" },
+            new Designation { Id = Id(32), OrganizationId = organization.Id, Code = "HREX", Name = "HR Executive", Grade = "P2" },
+            new Designation { Id = Id(33), OrganizationId = organization.Id, Code = "ACC", Name = "Accountant", Grade = "P2" },
+            new Designation { Id = Id(34), OrganizationId = organization.Id, Code = "SALEX", Name = "Sales Executive", Grade = "P2" },
+            new Designation { Id = Id(35), OrganizationId = organization.Id, Code = "MGR", Name = "Manager", Grade = "M1" }
         };
         _db.Designations.AddRange(designations);
+
+        // Per-org employee-code sequence: WINTECH keeps legacy "EMP###" codes (next = 13).
+        _db.Set<OrgEmployeeCodeSetting>().Add(new OrgEmployeeCodeSetting
+        {
+            Id = Id(40),
+            OrganizationId = organization.Id,
+            Prefix = "EMP",
+            Padding = 3,
+            NextSequence = 13
+        });
+
+        // Per-org module enablement defaults.
+        foreach (var moduleKey in Wintech.Hrms.Api.Common.Tenancy.OrgModules.AllKeys)
+        {
+            _db.Set<OrgModuleSetting>().Add(new OrgModuleSetting
+            {
+                Id = Guid.NewGuid(),
+                OrganizationId = organization.Id,
+                ModuleKey = moduleKey,
+                Enabled = Wintech.Hrms.Api.Common.Tenancy.OrgModules.DefaultFor(moduleKey),
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
 
         // ---- employees ------------------------------------------------------
         Guid Dept(string code) => departments.First(d => d.Code == code).Id;

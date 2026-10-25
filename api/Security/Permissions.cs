@@ -40,10 +40,17 @@ public static class Permissions
     public const string AdminUsers = "admin.users";
     public const string AdminRoles = "admin.roles";
     public const string AdminConfig = "admin.config";
+    /// <summary>Create/configure organizations and per-org module flags (SuperAdmin tenant owner).</summary>
+    public const string AdminOrganizations = "admin.organizations";
 
     public const string AuditView = "audit.view";
     public const string ReportView = "report.view";
     public const string ReportExport = "report.export";
+
+    /// <summary>Use employee chat (send/receive messages, groups, attachments, voice notes).</summary>
+    public const string ChatUse = "chat.use";
+    /// <summary>Place and receive voice/video calls with colleagues.</summary>
+    public const string CallUse = "call.use";
 
     public const string All = "*";
 
@@ -58,8 +65,9 @@ public static class Permissions
         AssetManage,
         CaseManage, CaseViewRestricted,
         AnnouncementCreate, PerformanceManage, TrainingManage,
-        AdminUsers, AdminRoles, AdminConfig,
-        AuditView, ReportView, ReportExport
+        AdminUsers, AdminRoles, AdminConfig, AdminOrganizations,
+        AuditView, ReportView, ReportExport,
+        ChatUse, CallUse
     ];
 
     public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>
@@ -89,9 +97,12 @@ public static class Permissions
         [AdminUsers] = "Manage user accounts and access",
         [AdminRoles] = "Manage roles and permissions",
         [AdminConfig] = "Manage system configuration and operations",
+        [AdminOrganizations] = "Create and configure organizations and per-org modules",
         [AuditView] = "Read audit log (read-only)",
         [ReportView] = "Run reports",
-        [ReportExport] = "Export reports"
+        [ReportExport] = "Export reports",
+        [ChatUse] = "Use employee chat and groups",
+        [CallUse] = "Place voice and video calls"
     };
 }
 
@@ -105,19 +116,23 @@ public static class Roles
     public const string PayrollFinance = "PayrollFinance";
     public const string ITAssetAdmin = "ITAssetAdmin";
     public const string SystemAdmin = "SystemAdmin";
+    public const string OrgAdmin = "OrgAdmin";
     public const string Auditor = "Auditor";
     public const string SuperAdmin = "SuperAdmin";
 
     public static readonly IReadOnlyList<string> All =
     [
         Employee, LineManager, HRExecutive, HRHead, PayrollFinance,
-        ITAssetAdmin, SystemAdmin, Auditor, SuperAdmin
+        ITAssetAdmin, SystemAdmin, OrgAdmin, Auditor, SuperAdmin
     ];
 
     public static readonly IReadOnlyDictionary<string, (string Description, string[] Permissions)> Definitions =
         new Dictionary<string, (string, string[])>
         {
-            [Employee] = ("Own records, self-service requests and HR support", []),
+            [Employee] = ("Own records, self-service requests and HR support",
+            [
+                Permissions.ChatUse, Permissions.CallUse
+            ]),
             [LineManager] = ("Approves direct reports' leave, attendance corrections, expenses and goals",
             [
                 Permissions.AttendanceViewTeam, Permissions.LeaveApprove, Permissions.ExpenseApprove,
@@ -154,6 +169,18 @@ public static class Roles
             [
                 Permissions.AdminUsers, Permissions.AdminRoles, Permissions.AdminConfig,
                 Permissions.EmployeeView, Permissions.ReportView, Permissions.ReportExport
+            ]),
+            [OrgAdmin] = ("Organization administrator: full control within a single organization",
+            [
+                Permissions.EmployeeView, Permissions.EmployeeCreate, Permissions.EmployeeEdit,
+                Permissions.EmployeeManage, Permissions.EmployeeExport, Permissions.AttendanceViewTeam,
+                Permissions.AttendanceManage, Permissions.LeaveApprove, Permissions.LeaveManage,
+                Permissions.PayrollManage, Permissions.PayrollPublish, Permissions.DocumentManage,
+                Permissions.ExpenseApprove, Permissions.ExpenseFinance, Permissions.AssetManage,
+                Permissions.CaseManage, Permissions.AnnouncementCreate, Permissions.PerformanceManage,
+                Permissions.TrainingManage, Permissions.AdminUsers, Permissions.AdminRoles,
+                Permissions.AdminConfig, Permissions.ReportView, Permissions.ReportExport,
+                Permissions.AuditView, Permissions.ChatUse, Permissions.CallUse
             ]),
             [Auditor] = ("Read-only audit log and approved reports",
             [

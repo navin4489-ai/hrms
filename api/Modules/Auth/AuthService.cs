@@ -18,6 +18,7 @@ public interface IAuthService : IAppService
     Task<LoginResponse> LoginAsync(LoginRequest request, string? ipAddress, CancellationToken cancellationToken = default);
     Task<LoginResponse> VerifyMfaAsync(MfaVerifyRequest request, string? ipAddress, CancellationToken cancellationToken = default);
     Task<LoginResponse> RefreshAsync(string refreshToken, string? ipAddress, CancellationToken cancellationToken = default);
+    Task<CurrentUserSummary> GetCurrentUserSummaryAsync(Guid userId, CancellationToken cancellationToken = default);
     Task LogoutAsync(string? refreshToken, Guid? actorUserId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SessionDto>> GetSessionsAsync(Guid userId, Guid? currentSessionId, CancellationToken cancellationToken = default);
     Task RevokeSessionAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken = default);
@@ -125,6 +126,17 @@ public sealed class AuthService : IAuthService
             new { Mfa = true, Ip = ipAddress }, ActorFor(user));
 
         return await IssueSessionAsync(user, "MFA device", ipAddress, cancellationToken);
+    }
+
+    public async Task<CurrentUserSummary> GetCurrentUserSummaryAsync(Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await LoadUserAsync(userId, cancellationToken)
+                   ?? throw new UnauthorizedException("The current account could not be found.");
+        if (user.Status != UserStatus.Active)
+            throw new UnauthorizedException("The current account is not active.");
+
+        return BuildSummary(user, GetUserRoles(user));
     }
 
     public async Task<LoginResponse> RefreshAsync(string refreshToken, string? ipAddress,
@@ -411,6 +423,10 @@ public sealed class AuthService : IAuthService
 
     private IQueryable<UserAccount> LoadBaseQuery() =>
         _db.UserAccounts
+            // Authentication starts before the tenant middleware can assign an organization
+            // scope. The account is selected by a unique credential/user id, so include its
+            // linked employee identity here while ordinary business queries stay tenant-filtered.
+            .IgnoreQueryFilters()
             .Include(u => u.Employee).ThenInclude(e => e!.Designation)
             .Include(u => u.Employee).ThenInclude(e => e!.Department)
             .Include(u => u.UserRoles).ThenInclude(ur => ur.Role!).ThenInclude(r => r.RolePermissions);

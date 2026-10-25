@@ -44,7 +44,11 @@ public sealed class AdminSeedData : IDataSeeder
         ("Security.RequireMfaForAdmins", "Bool", "false",
             "Require MFA enrolment for privileged roles (FR-ADM-143)."),
         ("Leave.YearStart", "Date", "2026-01-01",
-            "First day of the leave year used for accruals.")
+            "First day of the leave year used for accruals."),
+        ("Attendance.CaptureLocation", "Bool", "true",
+            "Capture geolocation on employee check-in/out (admin-only visibility, FR-ADM-041)."),
+        ("Attendance.CapturePhoto", "Bool", "true",
+            "Capture a selfie on employee check-in/out (admin-only visibility, FR-ADM-041).")
     ];
 
     public async Task SeedAsync(CancellationToken cancellationToken = default)
