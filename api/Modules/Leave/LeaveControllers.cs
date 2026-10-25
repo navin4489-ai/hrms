@@ -72,6 +72,24 @@ public sealed class LeaveReferenceController : ControllerBase
     public async Task<ActionResult<AdminLeavePolicyDto>> UpdatePolicy(Guid id,
         [FromBody] UpsertLeavePolicyRequest request, CancellationToken cancellationToken)
         => Ok(await _leave.UpsertLeavePolicyAsync(id, request, cancellationToken));
+
+    /// <summary>Admin/HR: view an employee's leave balances for a year (FR-ADM-054).</summary>
+    [HttpGet("api/v1/admin/leave/balances")]
+    [Permission(Permissions.LeaveManage)]
+    [ProducesResponseType(typeof(IReadOnlyList<LeaveBalanceDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<LeaveBalanceDto>>> EmployeeBalances(
+        [FromQuery] Guid employeeId, [FromQuery] int? year, CancellationToken cancellationToken)
+        => Ok(await _leave.GetEmployeeBalancesAsync(employeeId, year, cancellationToken));
+
+    /// <summary>Admin/HR: add/credit (or set) an employee's leave balance (FR-ADM-054).</summary>
+    [HttpPost("api/v1/admin/leave/balances/adjust")]
+    [Permission(Permissions.LeaveManage)]
+    [ProducesResponseType(typeof(LeaveBalanceAdjustedDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<LeaveBalanceAdjustedDto>> AdjustBalance(
+        [FromBody] AdjustLeaveBalanceRequest request, CancellationToken cancellationToken)
+        => Ok(await _leave.AdjustBalanceAsync(request, cancellationToken));
 }
 
 /// <summary>Leave requests: submit, list, detail and cancel (docs/API_CONTRACT.md §8, FR-EMP-041..044).</summary>

@@ -20,6 +20,12 @@ public interface ILeaveService : IAppService
 
     Task<AdminLeavePolicyDto> UpsertLeavePolicyAsync(Guid? id, UpsertLeavePolicyRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>Admin/HR: view an employee's leave balances (FR-ADM-054).</summary>
+    Task<IReadOnlyList<LeaveBalanceDto>> GetEmployeeBalancesAsync(Guid employeeId, int? year, CancellationToken cancellationToken = default);
+
+    /// <summary>Admin/HR: credit/debit or set an employee's leave balance (FR-ADM-054), audited.</summary>
+    Task<LeaveBalanceAdjustedDto> AdjustBalanceAsync(AdjustLeaveBalanceRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>Submit a leave request; validated against balance/window/attachment rules (FR-EMP-041/042).</summary>
     Task<LeaveRequestCreatedDto> CreateRequestAsync(LeaveRequestCreateDto request, CancellationToken cancellationToken = default);
 

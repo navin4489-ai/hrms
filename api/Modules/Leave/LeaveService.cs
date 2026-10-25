@@ -9,6 +9,7 @@ using Wintech.Hrms.Api.Common.Time;
 using Wintech.Hrms.Api.Data;
 using Wintech.Hrms.Api.Domain.Approvals;
 using Wintech.Hrms.Api.Domain.Attendance;
+using Wintech.Hrms.Api.Domain.Employees;
 using Wintech.Hrms.Api.Domain.Leave;
 using Wintech.Hrms.Api.Security;
 
@@ -193,6 +194,112 @@ public sealed class LeaveService : ILeaveService
         _currentUser.EnsureActive();
         if (!_currentUser.HasPermission(Permissions.AdminConfig))
             throw new ForbiddenException("You do not have permission to administer leave policies.");
+    }
+
+    private void RequireLeaveManage()
+    {
+        _currentUser.EnsureActive();
+        if (!_currentUser.HasPermission(Permissions.LeaveManage) &&
+            !_currentUser.HasPermission(Permissions.AdminConfig))
+            throw new ForbiddenException("You do not have permission to manage leave balances.");
+    }
+
+    public async Task<IReadOnlyList<LeaveBalanceDto>> GetEmployeeBalancesAsync(Guid employeeId, int? year,
+        CancellationToken cancellationToken = default)
+    {
+        RequireLeaveManage();
+        var targetYear = year ?? Today.Year;
+
+        var exists = await _db.Set<Employee>().AsNoTracking().AnyAsync(e => e.Id == employeeId, cancellationToken);
+        if (!exists) throw new NotFoundException("Employee not found in your organization.");
+
+        var types = await _db.Set<LeaveType>().AsNoTracking()
+            .Where(t => t.IsActive)
+            .OrderBy(t => t.DisplayOrder).ThenBy(t => t.Code)
+            .ToListAsync(cancellationToken);
+
+        var balances = await _db.Set<LeaveBalance>().AsNoTracking()
+            .Where(b => b.EmployeeId == employeeId && b.Year == targetYear)
+            .ToListAsync(cancellationToken);
+        var byType = balances.ToDictionary(b => b.LeaveTypeId);
+
+        return types.Select(t =>
+        {
+            byType.TryGetValue(t.Id, out var balance);
+            return new LeaveBalanceDto(
+                t.Id, t.Code, t.Name,
+                balance?.Available ?? 0,
+                balance?.Accrued ?? 0,
+                balance?.Used ?? 0,
+                balance?.Pending ?? 0,
+                balance?.CarryForward ?? 0,
+                t.Unit);
+        }).ToList();
+    }
+
+    public async Task<LeaveBalanceAdjustedDto> AdjustBalanceAsync(AdjustLeaveBalanceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        RequireLeaveManage();
+
+        var employee = await _db.Set<Employee>().AsNoTracking()
+            .FirstOrDefaultAsync(e => e.Id == request.EmployeeId, cancellationToken)
+            ?? throw new NotFoundException("Employee not found in your organization.");
+
+        var leaveType = await _db.Set<LeaveType>()
+            .FirstOrDefaultAsync(t => t.Id == request.LeaveTypeId && t.IsActive, cancellationToken)
+            ?? throw new RequestValidationException(errors: new()
+            {
+                ["leaveTypeId"] = ["Unknown or inactive leave type."]
+            });
+
+        var year = request.Year == 0 ? Today.Year : request.Year;
+        var mode = request.Mode?.Trim().ToLowerInvariant() ?? "add";
+
+        var balance = await _db.Set<LeaveBalance>()
+            .FirstOrDefaultAsync(b => b.EmployeeId == employee.Id && b.LeaveTypeId == leaveType.Id && b.Year == year,
+                cancellationToken);
+        var created = balance is null;
+        if (balance is null)
+        {
+            balance = new LeaveBalance
+            {
+                Id = Guid.NewGuid(),
+                EmployeeId = employee.Id,
+                LeaveTypeId = leaveType.Id,
+                Year = year
+            };
+            _db.Set<LeaveBalance>().Add(balance);
+        }
+
+        var oldAccrued = balance.Accrued;
+        if (mode == "set")
+            balance.Accrued = request.Amount;
+        else
+            balance.Accrued += request.Amount;
+
+        if (balance.Available < 0)
+            throw new RequestValidationException(errors: new()
+            {
+                ["amount"] = ["This adjustment would make the available balance negative."]
+            });
+
+        _audit.Add("leave_balance.adjust", nameof(LeaveBalance), balance.Id.ToString(), details: new
+        {
+            employee.EmployeeNumber,
+            leaveType.Code,
+            year,
+            mode,
+            request.Amount,
+            oldAccrued,
+            newAccrued = balance.Accrued,
+            request.Note,
+            created
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return new LeaveBalanceAdjustedDto(employee.Id, leaveType.Id, year,
+            balance.Accrued, balance.Used, balance.Pending, balance.CarryForward, balance.Available);
     }
 
     private static AdminLeaveTypeDto MapAdminLeaveType(LeaveType item) => new(

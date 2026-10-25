@@ -28,6 +28,40 @@ public sealed record LeaveBalanceDto(
     decimal CarryForward,
     string Unit);
 
+/// <summary>POST /admin/leave/balances/adjust — HR/admin credits or sets an employee's balance.</summary>
+public sealed class AdjustLeaveBalanceRequest
+{
+    [System.ComponentModel.DataAnnotations.Required]
+    public Guid EmployeeId { get; init; }
+
+    [System.ComponentModel.DataAnnotations.Required]
+    public Guid LeaveTypeId { get; init; }
+
+    [System.ComponentModel.DataAnnotations.Range(2000, 2100)]
+    public int Year { get; init; }
+
+    /// <summary>Amount to add (negative to debit) in "Add" mode, or the new Accrued value in "Set" mode.</summary>
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "-365", "365")]
+    public decimal Amount { get; init; }
+
+    /// <summary>"Add" (default) credits/debits accrued; "Set" overwrites accrued.</summary>
+    [System.ComponentModel.DataAnnotations.StringLength(10)]
+    public string Mode { get; init; } = "Add";
+
+    [System.ComponentModel.DataAnnotations.StringLength(500)]
+    public string? Note { get; init; }
+}
+
+public sealed record LeaveBalanceAdjustedDto(
+    Guid EmployeeId,
+    Guid LeaveTypeId,
+    int Year,
+    decimal Accrued,
+    decimal Used,
+    decimal Pending,
+    decimal CarryForward,
+    decimal Available);
+
 /// <summary>GET /leave-policies.</summary>
 public sealed record LeavePolicyDto(
     Guid Id,
