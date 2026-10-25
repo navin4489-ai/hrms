@@ -28,6 +28,7 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   StreamSubscription<IncomingCall>? _callSub;
+  StreamSubscription<Map<String, dynamic>>? _messageSub;
   StreamSubscription<PushCall>? _pushCallSub;
   StreamSubscription<String>? _openConvSub;
   StreamSubscription<String>? _tokenSub;
@@ -47,6 +48,15 @@ class _AppShellState extends ConsumerState<AppShell> {
 
     final rt = ref.read(chatRealtimeProvider);
     rt.connect();
+    if (canChat) {
+      // Ring the bell + refresh badges when a chat message arrives while the app is open.
+      _messageSub = rt.messages.listen((_) {
+        PushNotifications.instance.playNotificationSound();
+        if (mounted) {
+          ref.invalidate(chatUnreadProvider);
+        }
+      });
+    }
     if (canCall) {
       _callSub = rt.incomingCall.listen(_onIncomingCall);
       // Calls arriving via push (app backgrounded) raise the same ringing UI.
@@ -133,6 +143,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   void dispose() {
     _callSub?.cancel();
+    _messageSub?.cancel();
     _pushCallSub?.cancel();
     _openConvSub?.cancel();
     _tokenSub?.cancel();

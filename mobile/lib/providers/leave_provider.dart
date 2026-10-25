@@ -139,6 +139,29 @@ class LeaveActions {
   }) async {
     await _api.postMap('/leave-requests/$id/cancel', data: {'reason': reason});
   }
+
+  /// `POST /admin/leave/balances/adjust` — HR/admin credits or sets an
+  /// employee's leave balance (FR-ADM-054).
+  Future<void> adjustBalance({
+    required String employeeId,
+    required String leaveTypeId,
+    required int year,
+    required double amount,
+    String mode = 'Add',
+    String? note,
+  }) async {
+    await _api.postMap(
+      '/admin/leave/balances/adjust',
+      data: {
+        'employeeId': employeeId,
+        'leaveTypeId': leaveTypeId,
+        'year': year,
+        'amount': amount,
+        'mode': mode,
+        if (note != null) 'note': note,
+      },
+    );
+  }
 }
 
 final leaveActionsProvider = Provider<LeaveActions>(

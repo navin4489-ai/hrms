@@ -20,16 +20,20 @@ class AdminLeavePoliciesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
-    length: 2,
+    length: 3,
     child: AppScaffold(
       title: 'Leave administration',
       bottom: const TabBar(
+        isScrollable: true,
         tabs: [
           Tab(text: 'Leave types'),
           Tab(text: 'Policies'),
+          Tab(text: 'Balances'),
         ],
       ),
-      body: const TabBarView(children: [_LeaveTypesTab(), _LeavePoliciesTab()]),
+      body: const TabBarView(
+        children: [_LeaveTypesTab(), _LeavePoliciesTab(), _LeaveBalancesTab()],
+      ),
     ),
   );
 }
@@ -579,6 +583,267 @@ class _LeavePoliciesTab extends ConsumerWidget {
             ),
           ),
         ),
+      ],
+    );
+  }
+}
+
+final _adminEmployeesProvider = FutureProvider<List<Map<String, dynamic>>>((
+  ref,
+) async {
+  final page = await ref
+      .watch(apiClientProvider)
+      .getMap('/employees', query: {'page': 1, 'pageSize': 500});
+  final items = (page['items'] as List?) ?? const [];
+  return items
+      .whereType<Map>()
+      .map((e) => Map<String, dynamic>.from(e))
+      .toList();
+});
+
+/// Admin/HR: add or set an employee's leave balance (FR-ADM-054).
+class _LeaveBalancesTab extends ConsumerStatefulWidget {
+  const _LeaveBalancesTab();
+
+  @override
+  ConsumerState<_LeaveBalancesTab> createState() => _LeaveBalancesTabState();
+}
+
+class _LeaveBalancesTabState extends ConsumerState<_LeaveBalancesTab> {
+  String? _employeeId;
+  String? _leaveTypeId;
+  final _year = TextEditingController(text: DateTime.now().year.toString());
+  final _amount = TextEditingController();
+  String _mode = 'Add';
+  final _note = TextEditingController();
+  bool _saving = false;
+  String? _message;
+  List<dynamic>? _currentBalances;
+
+  @override
+  void dispose() {
+    _year.dispose();
+    _amount.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadBalances() async {
+    if (_employeeId == null) return;
+    try {
+      final list = await ref
+          .read(apiClientProvider)
+          .getList(
+            '/admin/leave/balances',
+            query: {'employeeId': _employeeId, 'year': _year.text.trim()},
+          );
+      setState(() => _currentBalances = list);
+    } catch (_) {
+      setState(() => _currentBalances = null);
+    }
+  }
+
+  Future<void> _save() async {
+    if (_employeeId == null || _leaveTypeId == null) {
+      setState(() => _message = 'Select an employee and leave type.');
+      return;
+    }
+    final amount = double.tryParse(_amount.text.trim());
+    if (amount == null) {
+      setState(() => _message = 'Enter a valid amount.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _message = null;
+    });
+    try {
+      await ref
+          .read(leaveActionsProvider)
+          .adjustBalance(
+            employeeId: _employeeId!,
+            leaveTypeId: _leaveTypeId!,
+            year: int.tryParse(_year.text.trim()) ?? DateTime.now().year,
+            amount: amount,
+            mode: _mode,
+            note: _note.text.trim().isEmpty ? null : _note.text.trim(),
+          );
+      _amount.clear();
+      _note.clear();
+      await _loadBalances();
+      if (mounted) {
+        setState(() => _message = 'Balance updated successfully.');
+      }
+    } on ApiException catch (e) {
+      setState(() => _message = e.detail ?? e.message);
+    } catch (e) {
+      setState(() => _message = 'Could not update: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final employees = ref.watch(_adminEmployeesProvider);
+    final types = ref.watch(leaveTypesProvider);
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(
+          'Add or set leave balance',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Credit (Add) or overwrite (Set) an employee\u2019s accrued leave for a type and year.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 16),
+        employees.when(
+          data: (list) => DropdownButtonFormField<String>(
+            initialValue: _employeeId,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Employee',
+              isDense: true,
+            ),
+            items: [
+              for (final e in list)
+                DropdownMenuItem(
+                  value: e['id']?.toString(),
+                  child: Text(
+                    '${e['displayName'] ?? e['firstName'] ?? ''} '
+                    '(${e['employeeNumber'] ?? ''})',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (v) {
+              setState(() => _employeeId = v);
+              _loadBalances();
+            },
+          ),
+          loading: () => const LinearProgressIndicator(),
+          error: (_, _) => const Text('Could not load employees.'),
+        ),
+        const SizedBox(height: 12),
+        types.when(
+          data: (list) => DropdownButtonFormField<String>(
+            initialValue: _leaveTypeId,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Leave type',
+              isDense: true,
+            ),
+            items: [
+              for (final t in list)
+                DropdownMenuItem(
+                  value: t.id,
+                  child: Text('${t.name} (${t.code})'),
+                ),
+            ],
+            onChanged: (v) => setState(() => _leaveTypeId = v),
+          ),
+          loading: () => const LinearProgressIndicator(),
+          error: (_, _) => const Text('Could not load leave types.'),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _year,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Year',
+                  isDense: true,
+                ),
+                onSubmitted: (_) => _loadBalances(),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextField(
+                controller: _amount,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                  signed: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: _mode == 'Add' ? 'Days to add' : 'Set days to',
+                  isDense: true,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'Add', label: Text('Add / credit')),
+            ButtonSegment(value: 'Set', label: Text('Set exact')),
+          ],
+          selected: {_mode},
+          onSelectionChanged: (s) => setState(() => _mode = s.first),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _note,
+          decoration: const InputDecoration(
+            labelText: 'Note (optional)',
+            isDense: true,
+          ),
+          minLines: 1,
+          maxLines: 2,
+        ),
+        const SizedBox(height: 12),
+        if (_message != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              _message!,
+              style: TextStyle(
+                color: _message!.contains('success')
+                    ? Colors.green
+                    : Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ),
+        FilledButton.icon(
+          onPressed: _saving ? null : _save,
+          icon: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.add_card_outlined),
+          label: Text(_mode == 'Add' ? 'Add balance' : 'Set balance'),
+        ),
+        if (_currentBalances != null) ...[
+          const Divider(height: 32),
+          Text(
+            'Current balances (${_year.text})',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 8),
+          for (final b in _currentBalances!)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: Text('${b['name']} (${b['code']})'),
+              subtitle: Text(
+                'Accrued ${b['accrued']} \u00b7 Used ${b['used']} \u00b7 '
+                'Pending ${b['pending']} \u00b7 Carry ${b['carryForward']}',
+              ),
+              trailing: Text(
+                'Avail ${b['available']}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+        ],
       ],
     );
   }

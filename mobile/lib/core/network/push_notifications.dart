@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 /// A parsed incoming-call payload delivered via push (used to raise the ringing UI).
@@ -201,8 +202,23 @@ class PushNotifications {
     } catch (_) {}
   }
 
+  final _notifyPlayer = AudioPlayer();
+
+  /// Plays a short notification "ding" + vibration — used when a chat message or
+  /// in-app notification arrives while the app is open (the bell ring).
+  Future<void> playNotificationSound() async {
+    try {
+      await HapticFeedback.mediumImpact();
+      await _notifyPlayer.stop();
+      await _notifyPlayer.play(AssetSource('sounds/notify.wav'), volume: 0.9);
+    } catch (e) {
+      debugPrint('Notification sound failed: $e');
+    }
+  }
+
   void dispose() {
     _ringPlayer.dispose();
+    _notifyPlayer.dispose();
     _incomingCall.close();
     _openConversation.close();
   }
