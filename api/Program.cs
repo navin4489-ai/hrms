@@ -83,6 +83,15 @@ builder.Services
 
         options.Events = new JwtBearerEvents
         {
+            OnMessageReceived = context =>
+            {
+                // SignalR (WebSocket) sends the token via query string on the hub path.
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                    context.Token = accessToken;
+                return Task.CompletedTask;
+            },
             OnChallenge = async context =>
             {
                 context.HandleResponse();
@@ -115,6 +124,7 @@ builder.Services
 
 // ---------------------------------------------------------------- authorization (RBAC permissions)
 builder.Services.AddAuthorization();
+builder.Services.AddSignalR();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
 
@@ -232,6 +242,7 @@ app.UseMiddleware<Wintech.Hrms.Api.Common.Tenancy.TenantResolutionMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<Wintech.Hrms.Api.Modules.Chat.ChatHub>("/hubs/chat");
 
 app.MapGet("/health", async (AppDbContext db, CancellationToken cancellationToken) =>
 {
@@ -291,6 +302,8 @@ using (var scope = app.Services.CreateScope())
             await db.Database.MigrateAsync();
         else
             await db.Database.EnsureCreatedAsync();
+
+        await TenantSchemaCompatibility.EnsureAsync(db, logger, CancellationToken.None);
 
         if (databaseOptions.Seed)
         {

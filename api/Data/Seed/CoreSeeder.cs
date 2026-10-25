@@ -99,15 +99,19 @@ public sealed class CoreSeeder : IDataSeeder
             NextSequence = 13
         });
 
-        // Per-org module enablement defaults.
+        // Per-org module enablement defaults. The demo org (WINTECH) also enables Chat + Calling
+        // so the feature is immediately usable in the demo build.
         foreach (var moduleKey in Wintech.Hrms.Api.Common.Tenancy.OrgModules.AllKeys)
         {
+            var enabled = Wintech.Hrms.Api.Common.Tenancy.OrgModules.DefaultFor(moduleKey)
+                || moduleKey == Wintech.Hrms.Api.Common.Tenancy.OrgModules.Chat
+                || moduleKey == Wintech.Hrms.Api.Common.Tenancy.OrgModules.Calling;
             _db.Set<OrgModuleSetting>().Add(new OrgModuleSetting
             {
                 Id = Guid.NewGuid(),
                 OrganizationId = organization.Id,
                 ModuleKey = moduleKey,
-                Enabled = Wintech.Hrms.Api.Common.Tenancy.OrgModules.DefaultFor(moduleKey),
+                Enabled = enabled,
                 UpdatedAt = DateTime.UtcNow
             });
         }
