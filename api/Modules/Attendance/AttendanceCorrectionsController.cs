@@ -27,7 +27,7 @@ public sealed class AttendanceCorrectionsController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, created);
     }
 
-    /// <summary>List corrections (own records; team with `attendance.view.team` via `employeeId`).</summary>
+    /// <summary>List corrections (own records; team with `attendance.view.team` via `employeeId`; SuperAdmin can list all).</summary>
     [HttpGet]
     [ProducesResponseType(typeof(PagedResult<AttendanceCorrectionListItem>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<AttendanceCorrectionListItem>>> List(

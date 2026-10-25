@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +5,8 @@ import '../../core/strings.dart';
 import '../../core/utils/file_saver.dart';
 import '../../models/directory_models.dart';
 import '../../providers/admin_provider.dart';
+import '../../providers/api_provider.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/directory_provider.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/app_scaffold.dart';
@@ -30,6 +30,7 @@ class _AdminReportsScreenState extends ConsumerState<AdminReportsScreen> {
 
   late DateTimeRange _range;
   String _report = 'headcount';
+  String _exportFormat = 'csv';
   String? _departmentId;
   String? _locationId;
   bool _exporting = false;
@@ -59,12 +60,6 @@ class _AdminReportsScreenState extends ConsumerState<AdminReportsScreen> {
     if (picked != null) setState(() => _range = picked);
   }
 
-  String _csvCell(Object? value) {
-    var text = value?.toString() ?? '';
-    if (text.startsWith(RegExp(r'[=+\-@]'))) text = "'$text";
-    return '"${text.replaceAll('"', '""')}"';
-  }
-
   Future<void> _export(Map<String, dynamic> payload) async {
     final rawRows = payload['rows'];
     final rows = rawRows is List
@@ -78,14 +73,21 @@ class _AdminReportsScreenState extends ConsumerState<AdminReportsScreen> {
     }
     setState(() => _exporting = true);
     try {
-      final columns = rows.expand((row) => row.keys).toSet().toList();
-      final csv = StringBuffer()..writeln(columns.map(_csvCell).join(','));
-      for (final row in rows) {
-        csv.writeln(columns.map((key) => _csvCell(row[key])).join(','));
-      }
+      final bytes = await ref
+          .read(apiClientProvider)
+          .downloadBytes(
+            '/reports/$_report/export',
+            query: {
+              'format': _exportFormat,
+              'from': _date(_range.start),
+              'to': _date(_range.end),
+              if (_departmentId != null) 'departmentId': _departmentId,
+              if (_locationId != null) 'locationId': _locationId,
+            },
+          );
       final path = await saveBytesToDevice(
-        utf8.encode(csv.toString()),
-        'wintech-${_report.replaceAll('-', '_')}-${_date(_range.end)}.csv',
+        bytes,
+        'wintech-${_report.replaceAll('-', '_')}-${_date(_range.end)}.$_exportFormat',
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -112,6 +114,9 @@ class _AdminReportsScreenState extends ConsumerState<AdminReportsScreen> {
       locationId: _locationId,
     );
     final report = ref.watch(adminReportProvider(query));
+    final canExport = ref
+        .watch(authStateProvider)
+        .hasPermission('report.export');
     final departments =
         ref.watch(departmentsProvider).value ?? const <OrgUnit>[];
     final locations =
@@ -145,6 +150,30 @@ class _AdminReportsScreenState extends ConsumerState<AdminReportsScreen> {
                   icon: const Icon(Icons.date_range_rounded),
                   label: Text('${_date(_range.start)} – ${_date(_range.end)}'),
                 ),
+                if (canExport) ...[
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: _exportFormat,
+                    decoration: const InputDecoration(
+                      labelText: 'Export format',
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'csv', child: Text('CSV')),
+                      DropdownMenuItem(
+                        value: 'xlsx',
+                        child: Text('Excel (.xlsx)'),
+                      ),
+                      DropdownMenuItem(value: 'pdf', child: Text('PDF')),
+                    ],
+                    onChanged: _exporting
+                        ? null
+                        : (value) {
+                            if (value != null) {
+                              setState(() => _exportFormat = value);
+                            }
+                          },
+                  ),
+                ],
                 const SizedBox(height: 10),
                 Row(
                   children: [
@@ -224,11 +253,14 @@ class _AdminReportsScreenState extends ConsumerState<AdminReportsScreen> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                   itemCount: rows.length + 1,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     if (index == 0) {
+                      if (!canExport) return const SizedBox.shrink();
                       return AppButton(
-                        label: _exporting ? Strings.saving : 'Export CSV',
+                        label: _exporting
+                            ? Strings.saving
+                            : 'Export ${_exportFormat.toUpperCase()}',
                         icon: Icons.download_outlined,
                         busy: _exporting,
                         onPressed: _exporting ? null : () => _export(data),

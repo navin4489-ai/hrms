@@ -86,7 +86,14 @@ public sealed class SecurityOptions
     public bool RequireMfaForAdmins { get; set; }
     public long MaxUploadBytes { get; set; } = 10 * 1024 * 1024;
     public long AvatarMaxUploadBytes { get; set; } = 2 * 1024 * 1024;
-    public string[] AllowedFileExtensions { get; set; } = [".pdf", ".png", ".jpg", ".jpeg", ".docx", ".xlsx", ".txt"];
+    public string[] AllowedFileExtensions { get; set; } =
+    [
+        ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic",
+        ".doc", ".docx", ".odt", ".rtf",
+        ".xls", ".xlsx", ".xlsm", ".ods",
+        ".ppt", ".pptx", ".odp",
+        ".txt", ".md", ".log", ".csv", ".json", ".xml", ".eml", ".msg"
+    ];
     public bool AutoClearUploads { get; set; } = true;
     public bool GeofenceEnabled { get; set; }
     public int PasswordMinLength { get; set; } = 8;

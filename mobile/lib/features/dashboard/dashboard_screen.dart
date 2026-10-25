@@ -9,7 +9,6 @@ import '../../models/me_models.dart';
 import '../../providers/attendance_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/dashboard_provider.dart';
-import '../../router/deep_link_parser.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_scaffold.dart';
 import '../../widgets/async_body.dart';
@@ -65,11 +64,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
   }
 
-  void _openDeepLink(String? deepLink) {
-    final route = DeepLinkParser.toAppRoute(deepLink);
-    if (route != null) context.go(route);
-  }
-
   @override
   Widget build(BuildContext context) {
     final dashboard = ref.watch(dashboardProvider);
@@ -111,7 +105,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       title: Strings.quickActions,
                       child: _QuickActions(
                         codes: data.quickActions,
-                        onSelect: _openDeepLink,
+                        // Quick-action routes are already app locations (for
+                        // example /leave/new), not API deep links. Keep the
+                        // deep-link parser for server-provided request links.
+                        onSelect: context.go,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -139,7 +136,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           for (final item in data.myRequests.take(5))
                             _RequestTile(
                               item: item,
-                              onTap: () => _openDeepLink(item.deepLink),
+                              // Dashboard request IDs are approval-task IDs.
+                              // Some API deep links pointed at the underlying
+                              // request resource using that task ID, causing
+                              // detail lookups to fail. Open the task detail,
+                              // which is also visible to its requester.
+                              onTap: () => context.go('/approvals/${item.id}'),
                             ),
                         ],
                       ),
@@ -375,6 +377,22 @@ class _AttendanceCard extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               Strings.notMarked,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+          if (!canPunch &&
+              attendance.checkIn == null &&
+              attendance.checkOut == null &&
+              const {
+                'WeekOff',
+                'Holiday',
+                'Leave',
+              }.contains(attendance.status)) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Punching is unavailable on a scheduled week off, holiday, or approved leave.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: scheme.onSurfaceVariant,
               ),

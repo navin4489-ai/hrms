@@ -313,7 +313,7 @@ paged: `[{ "taskId", "requestType", "requestId", "title", "requesterName", "requ
 
 ### GET /documents?category=&status=&employeeId=(default mine) -> `[{ "id", "name", "category": "Identity|Education|Employment|Tax|Medical|Other", "documentType", "issuedOn", "expiresOn", "status": "Pending|Verified|Rejected|ExpiringSoon|Expired", "verificationNote", "sizeBytes", "fileExtension", "canDownload", "uploadedAt" }]`
 (Another employee's documents require `document.manage`; identity/medical require `document.sensitive` — FR-ADM-084.)
-### POST /documents — multipart: `file` + `category` + `documentType` + `issuedOn?` + `expiresOn?` -> 201 document. 400 on type/size violation (allow-list: pdf, png, jpg, jpeg, docx, xlsx, txt; max from config, default 10 MB — BR-010). New uploads are `Pending` verification and malware-quarantined until cleared.
+### POST /documents — multipart: `file` + `category` + `documentType` + `issuedOn?` + `expiresOn?` -> 201 document. 400 on type/size violation (allow-list: PDF; common raster images; Word, Excel and PowerPoint formats; OpenDocument and RTF; TXT/Markdown/log; CSV/JSON/XML; EML/MSG; max from config, default 10 MB — BR-010). New uploads are `Pending` verification and malware-quarantined until cleared.
 ### GET /documents/{id}/download -> `200` file bytes (streamed, never a public URL; access audited).
 ### POST /documents/{id}/decision — `document.manage` `{ "action": "Verify|Reject", "note" }` -> 200 (FR-ADM-080).
 ### GET /letters/requests -> mine: `[{ "id", "letterType", "purpose", "status", "createdAt", "approvalTaskId", "generatedDocumentId" }]`
@@ -412,6 +412,9 @@ All reports: `?from=&to=&departmentId=&locationId=` and include `meta: { generat
 ### GET /reports/attendance-exceptions -> `{ rows: [{ employeeNumber, employeeName, workDate, exception: "MissingPunch|Late|Absent|PendingCorrection", detail }] }`
 ### GET /reports/document-expiry -> `{ rows: [{ employeeNumber, employeeName, documentType, expiresOn, daysToExpiry, status }] }`
 ### GET /reports/leave-liability -> `{ rows: [{ department, leaveType, entitlement, used, pending, carryForward }] }`
+
+### GET /reports/{report}/export?format=csv|xlsx|pdf&from=&to=&departmentId=&locationId= -> downloaded report file
+Requires `report.export`; exports the same filtered rows as CSV, Excel `.xlsx`, or PDF. Each export is audited with the actor, format, filters and row count.
 
 ---
 

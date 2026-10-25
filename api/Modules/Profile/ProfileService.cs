@@ -468,7 +468,7 @@ public sealed class ProfileService : IProfileService
                 status = t.Status,
                 date = DateOnly.FromDateTime(t.CreatedAt),
                 amount = t.Amount,
-                deepLink = DeepLink(t.RequestType, t.Id)
+                deepLink = DeepLink(t.Id)
             })
             .ToList();
 
@@ -537,16 +537,7 @@ public sealed class ProfileService : IProfileService
         return index < 0 ? int.MaxValue : index;
     }
 
-    private static string DeepLink(string requestType, Guid id) => requestType switch
-    {
-        "Leave" => $"/leave/requests/{id}",
-        "AttendanceCorrection" => $"/attendance/corrections/{id}",
-        "ShiftSwap" => $"/attendance/shift-swaps/{id}",
-        "Expense" => $"/expense/claims/{id}",
-        "Travel" => $"/travel/requests/{id}",
-        "Letter" => $"/letters/requests/{id}",
-        "ProfileChange" => $"/me/profile/changes/{id}",
-        "Resignation" => $"/me/resignation/{id}",
-        _ => $"/approvals/{id}"
-    };
+    // The dashboard row is an ApprovalTask, not the underlying module request.
+    // Link to the task ID so the detail endpoint can show status/history to its requester.
+    private static string DeepLink(Guid taskId) => $"/approvals/{taskId}";
 }

@@ -92,6 +92,70 @@ public sealed class ReportsController : ControllerBase
         return Ok(payload);
     }
 
+    /// <summary>Download a filtered report as CSV, Excel (.xlsx), or PDF (FR-ADM-150).</summary>
+    [HttpGet("{report}/export")]
+    [Permission(Permissions.ReportExport)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ExportReport(
+        [FromRoute] string report,
+        [FromQuery] string? format,
+        [FromQuery] string? from,
+        [FromQuery] string? to,
+        [FromQuery] Guid? departmentId,
+        [FromQuery] Guid? locationId,
+        CancellationToken cancellationToken)
+    {
+        var normalizedFormat = format?.Trim().ToLowerInvariant();
+        if (normalizedFormat is not ("csv" or "xlsx" or "pdf"))
+            throw new RequestValidationException("The export format is not supported.",
+                new Dictionary<string, string[]> { ["format"] = ["Choose csv, xlsx or pdf."] });
+
+        var provider = _providers.FirstOrDefault(p =>
+            string.Equals(p.Report, report, StringComparison.OrdinalIgnoreCase))
+            ?? throw new NotFoundException($"Report '{report}' is not available.");
+
+        var toDate = ParseDate(to, "to", cancellationToken) ?? _clock.Today;
+        var fromDate = ParseDate(from, "from", cancellationToken) ?? toDate.AddYears(-1);
+        if (fromDate > toDate)
+            throw new RequestValidationException("The date range is not valid.",
+                new Dictionary<string, string[]> { ["from"] = ["'from' must be on or before 'to'."] });
+
+        var filter = new ReportFilter(fromDate, toDate, departmentId, locationId);
+        var rows = await provider.GetRowsAsync(filter, cancellationToken);
+        var generatedBy = _currentUser.DisplayName;
+        if (string.IsNullOrWhiteSpace(generatedBy)) generatedBy = _currentUser.UserId.ToString();
+        var meta = new ReportMeta(_clock.UtcNow, generatedBy, filter, ReportScope);
+        var table = ReportFileExporter.CreateTable(rows);
+
+        var (content, contentType, extension) = normalizedFormat switch
+        {
+            "csv" => (ReportFileExporter.Csv(table), "text/csv; charset=utf-8", "csv"),
+            "xlsx" => (ReportFileExporter.Xlsx(table),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"),
+            _ => (ReportFileExporter.Pdf(ReportTitle(report), meta, table), "application/pdf", "pdf")
+        };
+
+        await _audit.RecordAsync("report.exported", "Report", report, "Success",
+            new { format = normalizedFormat, from = fromDate, to = toDate, departmentId, locationId, rows = rows.Count },
+            cancellationToken: cancellationToken);
+
+        var fileName = $"wintech-{report.Replace('-', '_')}-{toDate:yyyyMMdd}.{extension}";
+        return File(content, contentType, fileName);
+    }
+
+    private static string ReportTitle(string report) => report switch
+    {
+        "headcount" => "Headcount & movement",
+        "approval-aging" => "Approval aging",
+        "attendance-exceptions" => "Attendance exceptions",
+        "document-expiry" => "Document expiry",
+        "leave-liability" => "Leave liability",
+        _ => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(report.Replace('-', ' '))
+    };
+
     private static DateOnly? ParseDate(string? value, string field, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

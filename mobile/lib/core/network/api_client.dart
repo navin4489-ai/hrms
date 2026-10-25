@@ -241,13 +241,15 @@ class ApiClient {
   });
 
   /// Downloads a file (PDF etc.) and returns the bytes.
-  Future<List<int>> downloadBytes(String path) => _guard(() async {
-    final response = await dio.get<List<int>>(
-      path,
-      options: Options(responseType: ResponseType.bytes),
-    );
-    return response.data ?? const <int>[];
-  });
+  Future<List<int>> downloadBytes(String path, {Map<String, dynamic>? query}) =>
+      _guard(() async {
+        final response = await dio.get<List<int>>(
+          path,
+          queryParameters: query,
+          options: Options(responseType: ResponseType.bytes),
+        );
+        return response.data ?? const <int>[];
+      });
 
   /// Multipart POST (documents, expenses, avatar).
   Future<Map<String, dynamic>> postMultipart(

@@ -32,8 +32,9 @@ public sealed class DocumentsController : ControllerBase
         => Ok(await _documents.GetDocumentsAsync(category, status, employeeId, cancellationToken));
 
     /// <summary>
-    /// Upload a document (multipart). Allow-list pdf/png/jpg/jpeg/docx/xlsx/txt, max size from
-    /// configuration (default 10 MB — BR-010). New uploads are Pending verification.
+    /// Upload a document (multipart). Supported formats include PDF, images, office/open-document,
+    /// text, CSV/JSON/XML and email files; max size from configuration (default 10 MB — BR-010).
+    /// New uploads are Pending verification.
     /// </summary>
     [HttpPost]
     [Authorize]

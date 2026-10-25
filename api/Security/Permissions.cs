@@ -128,7 +128,8 @@ public static class Roles
                 Permissions.EmployeeView, Permissions.EmployeeCreate, Permissions.EmployeeEdit,
                 Permissions.AttendanceViewTeam, Permissions.AttendanceManage, Permissions.LeaveApprove,
                 Permissions.LeaveManage, Permissions.DocumentManage, Permissions.CaseManage,
-                Permissions.AnnouncementCreate, Permissions.TrainingManage, Permissions.ReportView
+                Permissions.AnnouncementCreate, Permissions.TrainingManage, Permissions.ReportView,
+                Permissions.ReportExport
             ]),
             [HRHead] = ("HR-wide access, exceptions and dashboards",
             [
@@ -152,7 +153,7 @@ public static class Roles
             [SystemAdmin] = ("Privileged configuration of users, roles, integrations and settings",
             [
                 Permissions.AdminUsers, Permissions.AdminRoles, Permissions.AdminConfig,
-                Permissions.EmployeeView, Permissions.ReportView
+                Permissions.EmployeeView, Permissions.ReportView, Permissions.ReportExport
             ]),
             [Auditor] = ("Read-only audit log and approved reports",
             [

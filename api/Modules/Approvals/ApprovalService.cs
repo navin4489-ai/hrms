@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Wintech.Hrms.Api.Common.Auditing;
+using Wintech.Hrms.Api.Common.CurrentUser;
 using Wintech.Hrms.Api.Common.ErrorHandling;
 using Wintech.Hrms.Api.Common.Notifications;
 using Wintech.Hrms.Api.Common.Time;
@@ -7,6 +8,7 @@ using Wintech.Hrms.Api.Data;
 using Wintech.Hrms.Api.Domain.Approvals;
 using Wintech.Hrms.Api.Domain.Employees;
 using Wintech.Hrms.Api.Domain.Identity;
+using Wintech.Hrms.Api.Security;
 
 namespace Wintech.Hrms.Api.Modules.Approvals;
 
@@ -28,16 +30,19 @@ public sealed class ApprovalService : IApprovalService
     private static readonly TimeSpan DelegationWindow = TimeSpan.FromDays(7);
 
     private readonly AppDbContext _db;
+    private readonly ICurrentUser _currentUser;
     private readonly IAuditService _audit;
     private readonly INotificationPublisher _notifications;
     private readonly IClock _clock;
     private readonly ILogger<ApprovalService> _logger;
     private readonly IReadOnlyList<IApprovalHandler> _handlers;
 
-    public ApprovalService(AppDbContext db, IAuditService audit, INotificationPublisher notifications,
-        IClock clock, ILogger<ApprovalService> logger, IEnumerable<IApprovalHandler> handlers)
+    public ApprovalService(AppDbContext db, ICurrentUser currentUser, IAuditService audit,
+        INotificationPublisher notifications, IClock clock, ILogger<ApprovalService> logger,
+        IEnumerable<IApprovalHandler> handlers)
     {
         _db = db;
+        _currentUser = currentUser;
         _audit = audit;
         _notifications = notifications;
         _clock = clock;
@@ -159,13 +164,14 @@ public sealed class ApprovalService : IApprovalService
         if (task.RequesterUserId == actorUserId)
             throw new ForbiddenException("You cannot decide your own request (BR-004).");
 
-        if (task.CurrentAssigneeUserId != actorUserId && task.DelegatedToUserId != actorUserId)
+        if (task.CurrentAssigneeUserId != actorUserId && task.DelegatedToUserId != actorUserId &&
+            !_currentUser.HasPermission(Permissions.All))
             throw new ForbiddenException("This approval is not assigned to you.");
 
         var now = _clock.UtcNow;
         var actorName = await DisplayNameAsync(actorUserId, null, cancellationToken);
 
-        task.Actions.Add(new ApprovalAction
+        _db.ApprovalActions.Add(new ApprovalAction
         {
             Id = Guid.NewGuid(),
             TaskId = task.Id,
@@ -255,7 +261,7 @@ public sealed class ApprovalService : IApprovalService
         var now = _clock.UtcNow;
         var actorName = await DisplayNameAsync(actorUserId, null, cancellationToken);
 
-        task.Actions.Add(new ApprovalAction
+        _db.ApprovalActions.Add(new ApprovalAction
         {
             Id = Guid.NewGuid(),
             TaskId = task.Id,
@@ -322,7 +328,7 @@ public sealed class ApprovalService : IApprovalService
         task.Status = nameof(ApprovalStatus.Cancelled);
         task.CompletedAt = now;
         task.UpdatedAt = now;
-        task.Actions.Add(new ApprovalAction
+        _db.ApprovalActions.Add(new ApprovalAction
         {
             Id = Guid.NewGuid(),
             TaskId = task.Id,

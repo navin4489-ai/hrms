@@ -40,11 +40,12 @@ public sealed class ApprovalQueryService : IApprovalQueryService
     {
         var me = _currentUser.RequireUserId();
         var now = _clock.UtcNow;
+        var canManageAll = _currentUser.HasPermission(Permissions.All);
 
         var query =
             from t in _db.ApprovalTasks.AsNoTracking()
             where t.Status == Pending
-                  && (t.CurrentAssigneeUserId == me ||
+                  && (canManageAll || t.CurrentAssigneeUserId == me ||
                       (t.DelegatedToUserId == me &&
                        (t.DelegationExpiresAt == null || t.DelegationExpiresAt > now)))
             orderby t.DueAt == null, t.DueAt, t.CreatedAt descending
@@ -175,7 +176,8 @@ public sealed class ApprovalQueryService : IApprovalQueryService
 
         var canDecide = task.Status == Pending &&
                         task.RequesterUserId != me &&
-                        (task.CurrentAssigneeUserId == me || isPendingDelegate);
+                        (task.CurrentAssigneeUserId == me || isPendingDelegate ||
+                         _currentUser.HasPermission(Permissions.All));
 
         return new ApprovalDetailDto
         {

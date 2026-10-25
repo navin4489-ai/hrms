@@ -22,6 +22,38 @@ class DocumentsScreen extends ConsumerStatefulWidget {
 }
 
 class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
+  static const _uploadExtensions = <String>[
+    'pdf',
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'webp',
+    'bmp',
+    'tif',
+    'tiff',
+    'heic',
+    'doc',
+    'docx',
+    'odt',
+    'rtf',
+    'xls',
+    'xlsx',
+    'xlsm',
+    'ods',
+    'ppt',
+    'pptx',
+    'odp',
+    'txt',
+    'md',
+    'log',
+    'csv',
+    'json',
+    'xml',
+    'eml',
+    'msg',
+  ];
+
   static const _categories = <String>[
     'Identity',
     'Education',
@@ -128,6 +160,15 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
                     style: Theme.of(sheetContext).textTheme.titleLarge
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'PDF, Word, Excel, PowerPoint, images, text, CSV, email and report files (max 10 MB).',
+                    style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(sheetContext)
+                          .colorScheme
+                          .onSurfaceVariant,
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   if (error != null) ...[
                     Container(
@@ -155,7 +196,8 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
                         ? null
                         : () async {
                             final result = await FilePicker.pickFiles(
-                              type: FileType.any,
+                              type: FileType.custom,
+                              allowedExtensions: _uploadExtensions,
                             );
                             if (result.isEmpty || result.first.path == null) {
                               return;

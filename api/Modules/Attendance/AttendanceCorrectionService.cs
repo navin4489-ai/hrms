@@ -123,7 +123,9 @@ public sealed class AttendanceCorrectionService : IAttendanceCorrectionService
     public async Task<PagedResult<AttendanceCorrectionListItem>> ListAsync(string? status, string? month,
         Guid? employeeId, PageRequest page, CancellationToken cancellationToken = default)
     {
-        var targetId = await ResolveTargetEmployeeIdAsync(employeeId, cancellationToken);
+        Guid? targetId = _currentUser.HasPermission(Permissions.All) && employeeId is null
+            ? null
+            : await ResolveTargetEmployeeIdAsync(employeeId, cancellationToken);
 
         AttendanceCorrectionStatus? statusFilter = null;
         if (!string.IsNullOrWhiteSpace(status))
@@ -137,8 +139,9 @@ public sealed class AttendanceCorrectionService : IAttendanceCorrectionService
         if (!string.IsNullOrWhiteSpace(month))
             monthFilter = ParseMonth(month);
 
-        var query = _db.Set<AttendanceCorrectionRequest>().AsNoTracking()
-            .Where(c => c.EmployeeId == targetId);
+        var query = _db.Set<AttendanceCorrectionRequest>().AsNoTracking();
+        if (targetId is { } target)
+            query = query.Where(c => c.EmployeeId == target);
 
         if (statusFilter is not null)
         {

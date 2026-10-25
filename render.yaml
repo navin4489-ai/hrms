@@ -35,3 +35,5 @@ projects:
                 generateValue: true
               - key: Security__SeedDemoPassword
                 generateValue: true
+              - key: Security__SuperAdminEmployeeNumber
+                value: EMP013

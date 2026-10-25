@@ -36,6 +36,7 @@ public sealed class CoreSeeder : IDataSeeder
     public async Task SeedAsync(CancellationToken cancellationToken = default)
     {
         await EnsureRolesAndPermissionsAsync(cancellationToken);
+        await EnsureSuperAdminAssignmentsAsync(cancellationToken);
         if (await _db.Organizations.AsNoTracking().AnyAsync(cancellationToken))
         {
             _logger.LogDebug("Core data already seeded; roles/permissions verified.");
@@ -237,6 +238,47 @@ public sealed class CoreSeeder : IDataSeeder
         _logger.LogInformation(
             "Seeded core HRMS data: {Employees} employees, {Accounts} user accounts, {Departments} departments.",
             employees.Count, accounts.Length, departments.Count);
+    }
+
+    /// <summary>
+    /// Keep the seeded admin and the deployment-configured owner account privileged on
+    /// databases that were seeded before their SuperAdmin assignment was present. Fresh
+    /// databases receive EMP001's assignment in the account seed above.
+    /// </summary>
+    private async Task EnsureSuperAdminAssignmentsAsync(CancellationToken cancellationToken)
+    {
+        var employeeNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "EMP001" };
+        var configuredEmployeeNumber = _configuration["Security:SuperAdminEmployeeNumber"]?.Trim();
+        if (!string.IsNullOrWhiteSpace(configuredEmployeeNumber))
+            employeeNumbers.Add(configuredEmployeeNumber);
+
+        foreach (var employeeNumber in employeeNumbers)
+        {
+            var employee = await _db.Employees.AsNoTracking()
+                .SingleOrDefaultAsync(e => e.EmployeeNumber == employeeNumber, cancellationToken);
+            if (employee is null) continue; // Fresh database: seed accounts are created below.
+
+            var account = await _db.UserAccounts.AsNoTracking()
+                .SingleOrDefaultAsync(user => user.EmployeeId == employee.Id, cancellationToken);
+            if (account is null)
+            {
+                _logger.LogWarning("{EmployeeNumber} has no login account; no SuperAdmin assignment was made.",
+                    employeeNumber);
+                continue;
+            }
+
+            var superAdminRole = await _db.Roles
+                .SingleAsync(role => role.Name == Roles.SuperAdmin, cancellationToken);
+            var assignmentExists = await _db.UserRoles.AsNoTracking()
+                .AnyAsync(userRole => userRole.UserId == account.Id && userRole.RoleId == superAdminRole.Id,
+                    cancellationToken);
+            if (assignmentExists) continue;
+
+            _db.UserRoles.Add(new UserRole { UserId = account.Id, RoleId = superAdminRole.Id });
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Assigned SuperAdmin to the existing login account for {EmployeeNumber}.",
+                employeeNumber);
+        }
     }
 
     private async Task EnsureRolesAndPermissionsAsync(CancellationToken cancellationToken)
