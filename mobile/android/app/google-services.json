@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "633707061939",
+    "project_id": "hrms-69521",
+    "storage_bucket": "hrms-69521.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:633707061939:android:a9828defbe2d9e50ba86c6",
+        "android_client_info": {
+          "package_name": "com.wintech.wintech_hrms"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzTnW_GchFehFvdbtEFCZJ-lCJGMk7zyQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
