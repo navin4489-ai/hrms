@@ -629,7 +629,10 @@ class _LeaveBalancesTabState extends ConsumerState<_LeaveBalancesTab> {
   }
 
   Future<void> _loadBalances() async {
-    if (_employeeId == null) return;
+    if (_employeeId == null) {
+      if (mounted) setState(() => _currentBalances = null);
+      return;
+    }
     try {
       final list = await ref
           .read(apiClientProvider)
@@ -637,9 +640,21 @@ class _LeaveBalancesTabState extends ConsumerState<_LeaveBalancesTab> {
             '/admin/leave/balances',
             query: {'employeeId': _employeeId, 'year': _year.text.trim()},
           );
-      setState(() => _currentBalances = list);
-    } catch (_) {
-      setState(() => _currentBalances = null);
+      if (mounted) {
+        setState(() {
+          _currentBalances = list;
+          _message = null;
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _currentBalances = null;
+          _message = error is ApiException
+              ? 'Could not load balances: ${error.message}'
+              : 'Could not load balances. Try again.';
+        });
+      }
     }
   }
 
@@ -711,18 +726,23 @@ class _LeaveBalancesTabState extends ConsumerState<_LeaveBalancesTab> {
             ),
             items: [
               for (final e in list)
-                DropdownMenuItem(
-                  value: e['id']?.toString(),
-                  child: Text(
-                    '${e['displayName'] ?? e['firstName'] ?? ''} '
-                    '(${e['employeeNumber'] ?? ''})',
-                    overflow: TextOverflow.ellipsis,
+                if ((e['employeeId'] ?? e['id']) != null)
+                  DropdownMenuItem<String>(
+                    value: (e['employeeId'] ?? e['id']).toString(),
+                    child: Text(
+                      '${e['displayName'] ?? e['firstName'] ?? ''} '
+                      '(${e['employeeNumber'] ?? ''})',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
             ],
             onChanged: (v) {
-              setState(() => _employeeId = v);
-              _loadBalances();
+              setState(() {
+                _employeeId = v;
+                _currentBalances = null;
+                _message = null;
+              });
+              if (v != null) _loadBalances();
             },
           ),
           loading: () => const LinearProgressIndicator(),
@@ -744,7 +764,10 @@ class _LeaveBalancesTabState extends ConsumerState<_LeaveBalancesTab> {
                   child: Text('${t.name} (${t.code})'),
                 ),
             ],
-            onChanged: (v) => setState(() => _leaveTypeId = v),
+            onChanged: (v) => setState(() {
+              _leaveTypeId = v;
+              _message = null;
+            }),
           ),
           loading: () => const LinearProgressIndicator(),
           error: (_, _) => const Text('Could not load leave types.'),
