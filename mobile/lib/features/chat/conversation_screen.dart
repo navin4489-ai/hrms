@@ -1,15 +1,21 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:record/record.dart';
 
 import '../../core/network/api_exception.dart';
+import '../../core/utils/file_saver.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/chat_models.dart';
+import '../../providers/api_provider.dart';
+import '../../providers/call_controller.dart';
 import '../../providers/chat_provider.dart';
 import '../../widgets/async_body.dart';
 
@@ -182,15 +188,14 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       _snack('Calling is available in direct chats only.');
       return;
     }
-    context.push(
-      '/chat/call',
-      extra: {
-        'employeeId': widget.otherEmployeeId,
-        'name': widget.title,
-        'kind': kind,
-        'outgoing': true,
-      },
-    );
+    ref
+        .read(callControllerProvider)
+        .start(
+          peerEmployeeId: widget.otherEmployeeId!,
+          peerName: widget.title,
+          kind: kind,
+          outgoing: true,
+        );
   }
 
   @override
@@ -296,11 +301,125 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
   }
 }
 
-class _MessageBubble extends StatelessWidget {
+class _MessageBubble extends ConsumerStatefulWidget {
   const _MessageBubble({required this.message, this.showSender = false});
 
   final ChatMessage message;
   final bool showSender;
+
+  @override
+  ConsumerState<_MessageBubble> createState() => _MessageBubbleState();
+}
+
+class _MessageBubbleState extends ConsumerState<_MessageBubble> {
+  bool _busy = false;
+  AudioPlayer? _audio;
+
+  ChatMessage get message => widget.message;
+  bool get showSender => widget.showSender;
+
+  @override
+  void dispose() {
+    _audio?.dispose();
+    super.dispose();
+  }
+
+  void _snack(String m) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+    }
+  }
+
+  /// Download the attachment bytes (auth-gated) and save to a temp file.
+  Future<String?> _downloadToFile() async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final bytes = await api.downloadBytes(
+        '/chat/messages/${message.id}/attachment',
+      );
+      final name = message.attachmentFileName ?? 'chat-${message.id}';
+      return await saveBytesToDevice(bytes, name);
+    } on ApiException catch (e) {
+      _snack(e.message);
+      return null;
+    } catch (e) {
+      _snack('Download failed: $e');
+      return null;
+    }
+  }
+
+  Future<void> _openFile() async {
+    setState(() => _busy = true);
+    final path = await _downloadToFile();
+    if (mounted) setState(() => _busy = false);
+    if (path != null) {
+      final result = await OpenFilex.open(path);
+      if (result.type != ResultType.done) {
+        _snack('Saved to device. ${result.message}');
+      }
+    }
+  }
+
+  Future<void> _viewImage() async {
+    setState(() => _busy = true);
+    Uint8List? bytes;
+    try {
+      final api = ref.read(apiClientProvider);
+      bytes = Uint8List.fromList(
+        await api.downloadBytes('/chat/messages/${message.id}/attachment'),
+      );
+    } catch (e) {
+      _snack('Could not load image: $e');
+    }
+    if (mounted) setState(() => _busy = false);
+    if (bytes != null && mounted) {
+      await showDialog<void>(
+        context: context,
+        builder: (_) => Dialog(
+          backgroundColor: Colors.black,
+          insetPadding: const EdgeInsets.all(8),
+          child: Stack(
+            children: [
+              InteractiveViewer(child: Center(child: Image.memory(bytes!))),
+              Positioned(
+                top: 4,
+                right: 4,
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+              Positioned(
+                bottom: 8,
+                right: 8,
+                child: FloatingActionButton.small(
+                  onPressed: _openFile,
+                  child: const Icon(Icons.download),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _playVoice() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final path = await _downloadToFile();
+      if (path != null) {
+        _audio ??= AudioPlayer();
+        await _audio!.setFilePath(path);
+        await _audio!.play();
+      }
+    } catch (e) {
+      _snack('Playback failed: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -346,42 +465,60 @@ class _MessageBubble extends StatelessWidget {
 
   Widget _content(BuildContext context, bool mine, ColorScheme scheme) {
     final textColor = mine ? Colors.white : scheme.onSurface;
+    final spinner = SizedBox(
+      width: 16,
+      height: 16,
+      child: CircularProgressIndicator(strokeWidth: 2, color: textColor),
+    );
+
     if (message.isVoice) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.play_circle_fill, color: textColor),
-          const SizedBox(width: 6),
-          Text(
-            'Voice note · ${message.durationSeconds ?? 0}s',
-            style: TextStyle(color: textColor),
-          ),
-        ],
+      return InkWell(
+        onTap: _playVoice,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _busy ? spinner : Icon(Icons.play_circle_fill, color: textColor),
+            const SizedBox(width: 6),
+            Text(
+              'Voice note · ${message.durationSeconds ?? 0}s',
+              style: TextStyle(color: textColor),
+            ),
+          ],
+        ),
       );
     }
     if (message.isImage) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.photo, color: textColor),
-          const SizedBox(width: 6),
-          Text('Photo', style: TextStyle(color: textColor)),
-        ],
+      return InkWell(
+        onTap: _viewImage,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _busy ? spinner : Icon(Icons.image, color: textColor),
+            const SizedBox(width: 6),
+            Text('Photo · tap to view', style: TextStyle(color: textColor)),
+          ],
+        ),
       );
     }
     if (message.isFile) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.insert_drive_file, color: textColor),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              message.attachmentFileName ?? 'File',
-              style: TextStyle(color: textColor),
+      return InkWell(
+        onTap: _openFile,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _busy ? spinner : Icon(Icons.insert_drive_file, color: textColor),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                message.attachmentFileName ?? 'File · tap to open',
+                style: TextStyle(color: textColor),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 4),
+            Icon(Icons.download_rounded, size: 16, color: textColor),
+          ],
+        ),
       );
     }
     return Text(message.body ?? '', style: TextStyle(color: textColor));

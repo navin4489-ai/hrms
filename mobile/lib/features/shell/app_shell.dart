@@ -8,6 +8,7 @@ import '../../core/network/chat_realtime.dart';
 import '../../core/network/push_notifications.dart';
 import '../../core/strings.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/call_controller.dart';
 import '../../providers/chat_provider.dart';
 import '../../providers/approvals_provider.dart';
 
@@ -122,20 +123,19 @@ class _AppShellState extends ConsumerState<AppShell> {
       ),
     );
     _dialogOpen = false;
-    // Stop the dialog ringtone; the call screen manages its own ring afterwards.
+    // Stop the dialog ringtone; the call controller manages its own ring afterwards.
     await PushNotifications.instance.stopRingtone();
     if (!mounted) return;
     if (accept == true) {
-      context.push(
-        '/chat/call',
-        extra: {
-          'employeeId': call.fromEmployeeId,
-          'name': call.fromName,
-          'kind': call.kind,
-          'outgoing': false,
-          'callId': call.callId,
-        },
-      );
+      await ref
+          .read(callControllerProvider)
+          .start(
+            peerEmployeeId: call.fromEmployeeId,
+            peerName: call.fromName,
+            kind: call.kind,
+            outgoing: false,
+            callId: call.callId,
+          );
     } else {
       // Decline: end the call on the server.
       try {

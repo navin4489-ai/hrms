@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/network/chat_realtime.dart';
 import '../../core/utils/formatters.dart';
 import '../../models/chat_models.dart';
+import '../../providers/call_controller.dart';
 import '../../providers/chat_provider.dart';
 import '../../widgets/app_scaffold.dart';
 import '../../widgets/async_body.dart';
@@ -212,15 +213,14 @@ class _CallsTab extends ConsumerWidget {
                 AppFormatters.dateShort(call.startedAt),
                 style: Theme.of(context).textTheme.labelSmall,
               ),
-              onTap: () => context.push(
-                '/chat/call',
-                extra: {
-                  'employeeId': call.otherEmployeeId,
-                  'name': call.otherName,
-                  'kind': call.kind,
-                  'outgoing': true,
-                },
-              ),
+              onTap: () => ref
+                  .read(callControllerProvider)
+                  .start(
+                    peerEmployeeId: call.otherEmployeeId,
+                    peerName: call.otherName,
+                    kind: call.kind,
+                    outgoing: true,
+                  ),
             );
           },
         ),

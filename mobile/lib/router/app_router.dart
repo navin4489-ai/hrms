@@ -23,7 +23,6 @@ import '../features/admin/admin_organizations_screen.dart';
 import '../features/helpdesk/admin_cases_screen.dart';
 import '../features/chat/chat_home_screen.dart';
 import '../features/chat/conversation_screen.dart';
-import '../features/chat/call_screen.dart';
 import '../features/announcements/announcements_screen.dart';
 import '../features/approvals/approval_detail_screen.dart';
 import '../features/approvals/approvals_screen.dart';
@@ -120,19 +119,6 @@ final routerProvider = Provider<GoRouter>((ref) {
             title: (extra['title'] as String?) ?? 'Chat',
             otherEmployeeId: extra['otherEmployeeId'] as String?,
             isGroup: (extra['isGroup'] as bool?) ?? false,
-          );
-        },
-      ),
-      GoRoute(
-        path: '/chat/call',
-        builder: (context, state) {
-          final extra = (state.extra as Map?) ?? const {};
-          return CallScreen(
-            employeeId: (extra['employeeId'] as String?) ?? '',
-            name: (extra['name'] as String?) ?? 'Call',
-            kind: (extra['kind'] as String?) ?? 'Audio',
-            outgoing: (extra['outgoing'] as bool?) ?? true,
-            callId: extra['callId'] as String?,
           );
         },
       ),
