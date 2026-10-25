@@ -95,6 +95,7 @@ public static class TenantSchemaCompatibility
         }
     }
 
+#pragma warning disable EF1002 // Identifiers are selected only from the private constant ReferenceTables list.
     private static async Task EnsurePostgresAsync(AppDbContext db, ILogger logger,
         CancellationToken cancellationToken)
     {
@@ -151,7 +152,9 @@ public static class TenantSchemaCompatibility
             cancellationToken);
         logger.LogInformation("Verified tenant ownership schema for PostgreSQL.");
     }
+#pragma warning restore EF1002
 
+#pragma warning disable EF1002 // Identifiers are selected only from the private constant ReferenceTables list.
     private static async Task EnsureSqlServerAsync(AppDbContext db, ILogger logger,
         CancellationToken cancellationToken)
     {
@@ -203,6 +206,7 @@ public static class TenantSchemaCompatibility
             """, cancellationToken);
         logger.LogInformation("Verified tenant ownership schema for SQL Server.");
     }
+#pragma warning restore EF1002
 
     private static async Task<bool> SqliteColumnExistsAsync(System.Data.Common.DbConnection connection,
         string table, string column, CancellationToken cancellationToken)
