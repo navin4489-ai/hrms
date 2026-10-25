@@ -63,3 +63,16 @@ public sealed class CallSessionConfiguration : IEntityTypeConfiguration<CallSess
         builder.HasIndex(c => c.StartedAt);
     }
 }
+
+public sealed class DeviceTokenConfiguration : IEntityTypeConfiguration<DeviceToken>
+{
+    public void Configure(EntityTypeBuilder<DeviceToken> builder)
+    {
+        builder.ToTable("chat_device_tokens");
+        builder.HasKey(d => d.Id);
+        builder.Property(d => d.Token).HasMaxLength(400).IsRequired();
+        builder.Property(d => d.Platform).HasMaxLength(20);
+        builder.HasIndex(d => d.Token).IsUnique();
+        builder.HasIndex(d => d.EmployeeId);
+    }
+}

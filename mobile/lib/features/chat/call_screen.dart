@@ -6,6 +6,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/network/chat_realtime.dart';
+import '../../core/network/push_notifications.dart';
 import '../../providers/chat_provider.dart';
 
 /// 1:1 WebRTC audio/video call screen. Media is peer-to-peer; signaling flows
@@ -70,6 +71,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
 
+    // Ring until the call is answered/connected.
+    PushNotifications.instance.startRingtone();
+
     final perms = _isVideo
         ? [Permission.microphone, Permission.camera]
         : [Permission.microphone];
@@ -107,6 +111,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     _pc!.onTrack = (event) {
       if (event.streams.isNotEmpty) {
         _remoteRenderer.srcObject = event.streams.first;
+        PushNotifications.instance.stopRingtone();
         if (mounted) {
           setState(() {
             _status = 'Connected';
@@ -206,6 +211,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   }
 
   Future<void> _cleanup() async {
+    await PushNotifications.instance.stopRingtone();
     for (final s in _subs) {
       await s.cancel();
     }

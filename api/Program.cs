@@ -125,6 +125,7 @@ builder.Services
 // ---------------------------------------------------------------- authorization (RBAC permissions)
 builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
+builder.Services.AddHttpClient();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
 

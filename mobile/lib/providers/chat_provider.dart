@@ -143,6 +143,19 @@ class ChatActions {
         .postEmpty('/chat/conversations/$conversationId/leave');
   }
 
+  /// Register the device's FCM token for push notifications.
+  Future<void> registerDevice(
+    String token, {
+    String platform = 'android',
+  }) async {
+    await _ref
+        .read(apiClientProvider)
+        .postEmpty(
+          '/chat/devices',
+          data: {'token': token, 'platform': platform},
+        );
+  }
+
   // ---- calling ----
 
   Future<String> startCall(String calleeEmployeeId, String kind) async {

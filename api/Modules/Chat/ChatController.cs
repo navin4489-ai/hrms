@@ -156,6 +156,15 @@ public sealed class ChatController : ControllerBase
     public async Task<ActionResult<object>> Unread(CancellationToken cancellationToken)
         => Ok(new { count = await _chat.GetUnreadCountAsync(cancellationToken) });
 
+    [HttpPost("devices")]
+    [Permission(Permissions.ChatUse)]
+    public async Task<IActionResult> RegisterDevice([FromBody] RegisterDeviceRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _chat.RegisterDeviceAsync(request.Token, request.Platform ?? "android", cancellationToken);
+        return NoContent();
+    }
+
     // ---- calling ----
 
     [HttpPost("calls")]

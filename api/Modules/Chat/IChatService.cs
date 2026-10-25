@@ -25,6 +25,9 @@ public interface IChatService : IAppService
 
     Task<int> GetUnreadCountAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Register/refresh the caller's FCM device token for push notifications.</summary>
+    Task RegisterDeviceAsync(string token, string platform, CancellationToken cancellationToken = default);
+
     // ---- calling ----
     Task<CallStartedDto> StartCallAsync(Guid calleeEmployeeId, string kind, CancellationToken cancellationToken = default);
     Task EndCallAsync(Guid callId, string state, int? durationSeconds, CancellationToken cancellationToken = default);

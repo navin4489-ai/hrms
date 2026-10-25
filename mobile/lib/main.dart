@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'app.dart';
+import 'core/network/push_notifications.dart';
 import 'providers/auth_provider.dart';
 
 /// Bootstrap: init bindings, run app, then restore the stored session
@@ -18,6 +20,12 @@ Future<void> main() async {
       debugPrint('Unhandled Flutter error: ${details.exceptionAsString()}');
     }
   };
+
+  // Initialize push notifications (safe no-op when Firebase isn't configured).
+  try {
+    FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
+  } catch (_) {}
+  await PushNotifications.instance.init();
 
   final container = ProviderContainer();
   runApp(

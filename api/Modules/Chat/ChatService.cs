@@ -22,16 +22,18 @@ public sealed class ChatService : IChatService
     private readonly IClock _clock;
     private readonly IPrivateFileStore _files;
     private readonly IHubContext<ChatHub> _hub;
+    private readonly IPushSender _push;
     private readonly ILogger<ChatService> _logger;
 
     public ChatService(AppDbContext db, ICurrentUser currentUser, IClock clock, IPrivateFileStore files,
-        IHubContext<ChatHub> hub, ILogger<ChatService> logger)
+        IHubContext<ChatHub> hub, IPushSender push, ILogger<ChatService> logger)
     {
         _db = db;
         _currentUser = currentUser;
         _clock = clock;
         _files = files;
         _hub = hub;
+        _push = push;
         _logger = logger;
     }
 
@@ -360,6 +362,32 @@ public sealed class ChatService : IChatService
         return conversations.Sum(c => c.UnreadCount);
     }
 
+    public async Task RegisterDeviceAsync(string token, string platform, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return;
+        var me = MeEmployeeId;
+        var existing = await _db.Set<DeviceToken>()
+            .FirstOrDefaultAsync(d => d.Token == token, cancellationToken);
+        if (existing is not null)
+        {
+            existing.EmployeeId = me;
+            existing.Platform = platform;
+            existing.UpdatedAt = _clock.UtcNow;
+        }
+        else
+        {
+            _db.Add(new DeviceToken
+            {
+                Id = Guid.NewGuid(),
+                EmployeeId = me,
+                Token = token.Trim(),
+                Platform = string.IsNullOrWhiteSpace(platform) ? "android" : platform,
+                UpdatedAt = _clock.UtcNow
+            });
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
     // ---------------------------------------------------------------- calling
 
     public async Task<CallStartedDto> StartCallAsync(Guid calleeEmployeeId, string kind, CancellationToken cancellationToken = default)
@@ -390,6 +418,8 @@ public sealed class ChatService : IChatService
             fromName = callerName,
             kind = callKind.ToString()
         });
+        await _push.SendIncomingCallAsync(calleeEmployeeId, callerName, me.ToString(),
+            call.Id.ToString(), callKind.ToString(), cancellationToken);
         _ = callee;
         return new CallStartedDto { CallId = call.Id, CalleeEmployeeId = calleeEmployeeId, Kind = callKind.ToString() };
     }
@@ -498,6 +528,11 @@ public sealed class ChatService : IChatService
 
         foreach (var member in conversation.Members.Where(m => m.LeftAt == null && m.EmployeeId != me))
             await SendToEmployeeAsync(member.EmployeeId, "message", dto);
+
+        // Push notification (works when the recipient's app is backgrounded/closed).
+        var preview = conversation.LastMessagePreview ?? dto.Body ?? "New message";
+        foreach (var member in conversation.Members.Where(m => m.LeftAt == null && m.EmployeeId != me))
+            await _push.SendMessageAsync(member.EmployeeId, dto.SenderName, preview, conversation.Id, ct);
         return dto;
     }
 

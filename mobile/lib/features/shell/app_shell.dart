@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/network/chat_realtime.dart';
+import '../../core/network/push_notifications.dart';
 import '../../core/strings.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/chat_provider.dart';
@@ -27,6 +28,9 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   StreamSubscription<IncomingCall>? _callSub;
+  StreamSubscription<PushCall>? _pushCallSub;
+  StreamSubscription<String>? _openConvSub;
+  StreamSubscription<String>? _tokenSub;
   bool _dialogOpen = false;
 
   @override
@@ -35,12 +39,51 @@ class _AppShellState extends ConsumerState<AppShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _initRealtime());
   }
 
-  void _initRealtime() {
+  Future<void> _initRealtime() async {
     final auth = ref.read(authStateProvider);
-    if (!auth.hasPermission('call.use')) return;
+    final canChat = auth.hasPermission('chat.use');
+    final canCall = auth.hasPermission('call.use');
+    if (!canChat && !canCall) return;
+
     final rt = ref.read(chatRealtimeProvider);
     rt.connect();
-    _callSub = rt.incomingCall.listen(_onIncomingCall);
+    if (canCall) {
+      _callSub = rt.incomingCall.listen(_onIncomingCall);
+      // Calls arriving via push (app backgrounded) raise the same ringing UI.
+      _pushCallSub = PushNotifications.instance.incomingCall.listen(
+        (p) => _onIncomingCall(
+          IncomingCall(
+            callId: p.callId,
+            fromEmployeeId: p.fromEmployeeId,
+            fromName: p.fromName,
+            kind: p.kind,
+          ),
+        ),
+      );
+    }
+    // Tapping a message notification opens the conversation.
+    _openConvSub = PushNotifications.instance.openConversation.listen((convId) {
+      if (mounted) {
+        context.push('/chat/conversation/$convId', extra: {'title': 'Chat'});
+      }
+    });
+
+    // Register this device's FCM token so the server can push to it.
+    await _registerPushToken();
+    _tokenSub = PushNotifications.instance.onTokenRefresh.listen((t) {
+      ref.read(chatActionsProvider).registerDevice(t).catchError((_) {});
+    });
+  }
+
+  Future<void> _registerPushToken() async {
+    try {
+      final token = await PushNotifications.instance.getToken();
+      if (token != null && token.isNotEmpty) {
+        await ref.read(chatActionsProvider).registerDevice(token);
+      }
+    } catch (_) {
+      // Push not configured / offline — in-app realtime still works.
+    }
   }
 
   Future<void> _onIncomingCall(IncomingCall call) async {
@@ -90,6 +133,9 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   void dispose() {
     _callSub?.cancel();
+    _pushCallSub?.cancel();
+    _openConvSub?.cancel();
+    _tokenSub?.cancel();
     super.dispose();
   }
 

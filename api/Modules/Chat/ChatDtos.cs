@@ -119,3 +119,12 @@ public sealed class EndCallRequest
 
     public int? DurationSeconds { get; set; }
 }
+
+public sealed class RegisterDeviceRequest
+{
+    [Required, StringLength(400)]
+    public string Token { get; set; } = string.Empty;
+
+    [StringLength(20)]
+    public string? Platform { get; set; }
+}
