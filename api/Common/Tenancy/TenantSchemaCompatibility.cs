@@ -23,6 +23,77 @@ public static class TenantSchemaCompatibility
             await EnsurePostgresAsync(db, logger, cancellationToken);
         else if (string.Equals(provider, "Microsoft.EntityFrameworkCore.SqlServer", StringComparison.Ordinal))
             await EnsureSqlServerAsync(db, logger, cancellationToken);
+
+        await BackfillOrgDefaultsAsync(db, logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// Ensures every existing organization has per-org module flags and an employee-code setting.
+    /// Organizations created before these features shipped would otherwise fall back to module
+    /// defaults (Chat/Calling off), hiding those features in the app. Provider-agnostic (EF).
+    /// </summary>
+    private static async Task BackfillOrgDefaultsAsync(AppDbContext db, ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var orgs = await db.Organizations.AsNoTracking()
+            .Select(o => new { o.Id, o.Code })
+            .ToListAsync(cancellationToken);
+        if (orgs.Count == 0) return;
+
+        var existingModuleOrgIds = await db.Set<Domain.Organization.OrgModuleSetting>()
+            .IgnoreQueryFilters().AsNoTracking()
+            .Select(m => m.OrganizationId).Distinct().ToListAsync(cancellationToken);
+        var existingModuleSet = existingModuleOrgIds.ToHashSet();
+
+        var existingCodeOrgIds = await db.Set<Domain.Organization.OrgEmployeeCodeSetting>()
+            .IgnoreQueryFilters().AsNoTracking()
+            .Select(s => s.OrganizationId).ToListAsync(cancellationToken);
+        var existingCodeSet = existingCodeOrgIds.ToHashSet();
+
+        var added = 0;
+        foreach (var org in orgs)
+        {
+            if (!existingModuleSet.Contains(org.Id))
+            {
+                foreach (var key in OrgModules.AllKeys)
+                {
+                    // Enable the module defaults, and additionally enable Chat + Calling so the
+                    // collaboration features are available to existing tenants after upgrade.
+                    var enabled = OrgModules.DefaultFor(key)
+                        || key == OrgModules.Chat
+                        || key == OrgModules.Calling;
+                    db.Add(new Domain.Organization.OrgModuleSetting
+                    {
+                        Id = Guid.NewGuid(),
+                        OrganizationId = org.Id,
+                        ModuleKey = key,
+                        Enabled = enabled,
+                        UpdatedAt = DateTime.UtcNow
+                    });
+                }
+                added++;
+            }
+
+            if (!existingCodeSet.Contains(org.Id))
+            {
+                db.Add(new Domain.Organization.OrgEmployeeCodeSetting
+                {
+                    Id = Guid.NewGuid(),
+                    OrganizationId = org.Id,
+                    Prefix = string.Equals(org.Code, "WINTECH", StringComparison.OrdinalIgnoreCase)
+                        ? "EMP"
+                        : $"{org.Code}-EMP",
+                    Padding = 3,
+                    NextSequence = 1
+                });
+            }
+        }
+
+        if (db.ChangeTracker.HasChanges())
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            logger.LogInformation("Backfilled per-org module/code settings for {Count} organization(s).", added);
+        }
     }
 
     private static async Task EnsureSqliteAsync(AppDbContext db, ILogger logger,
