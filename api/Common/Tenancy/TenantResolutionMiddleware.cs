@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Wintech.Hrms.Api.Common.ErrorHandling;
 using Wintech.Hrms.Api.Data;
 using Wintech.Hrms.Api.Security;
 
@@ -49,12 +50,19 @@ public sealed class TenantResolutionMiddleware
             {
                 // SuperAdmin: cross-org by default; optionally pinned to a target organization.
                 Guid? target = profile.OrganizationId;
-                if (context.Request.Headers.TryGetValue(OrganizationHeader, out var header) &&
-                    Guid.TryParse(header.ToString(), out var requested))
+                var bypassFilter = true;
+                if (context.Request.Headers.TryGetValue(OrganizationHeader, out var header))
                 {
+                    if (!Guid.TryParse(header.ToString(), out var requested))
+                        throw new RequestValidationException("The organization header is invalid.",
+                            new() { [OrganizationHeader] = ["Provide a valid organization id."] });
+                    if (!await db.Organizations.AsNoTracking()
+                            .AnyAsync(org => org.Id == requested, context.RequestAborted))
+                        throw new NotFoundException("The requested organization was not found.");
                     target = requested;
+                    bypassFilter = false;
                 }
-                scope.Set(target, bypassFilter: true);
+                scope.Set(target, bypassFilter);
             }
             else
             {

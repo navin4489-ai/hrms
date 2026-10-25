@@ -121,7 +121,8 @@ public sealed class UpsertShiftRequest
     [Required] public TimeOnly EndTime { get; init; }
     [Range(0, 180)] public int GraceMinutes { get; init; }
     [Range(0, 600)] public int BreakMinutes { get; init; }
-    [MinLength(1)] public List<string> WeekDays { get; init; } = [];
+    [MinLength(1, ErrorMessage = "Select at least one working day.")]
+    public List<string> WeekDays { get; init; } = [];
     public bool IsDefault { get; init; }
     public bool IsActive { get; init; } = true;
 }

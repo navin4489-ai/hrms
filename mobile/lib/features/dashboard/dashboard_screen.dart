@@ -9,6 +9,7 @@ import '../../models/me_models.dart';
 import '../../providers/attendance_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/dashboard_provider.dart';
+import '../../providers/organizations_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_scaffold.dart';
 import '../../widgets/async_body.dart';
@@ -113,6 +114,44 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                     const SizedBox(height: 16),
                   ],
+                  ...() {
+                    final auth = ref.watch(authStateProvider);
+                    final modules = ref.watch(meModulesProvider).value;
+                    bool moduleOn(String m) =>
+                        modules == null || modules.contains(m);
+                    final canChat =
+                        auth.hasPermission('chat.use') && moduleOn('chat');
+                    final canCall =
+                        auth.hasPermission('call.use') && moduleOn('calling');
+                    if (!canChat && !canCall) return const <Widget>[];
+                    return [
+                      SectionCard(
+                        title: 'Connect',
+                        child: Row(
+                          children: [
+                            if (canChat)
+                              Expanded(
+                                child: _ConnectTile(
+                                  icon: Icons.chat_bubble_outline_rounded,
+                                  label: 'Chat',
+                                  onTap: () => context.push('/chat'),
+                                ),
+                              ),
+                            if (canChat && canCall) const SizedBox(width: 12),
+                            if (canCall)
+                              Expanded(
+                                child: _ConnectTile(
+                                  icon: Icons.call_outlined,
+                                  label: 'Calls',
+                                  onTap: () => context.push('/chat'),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ];
+                  }(),
                   if (data.pendingApprovals > 0) ...[
                     _ApprovalsCard(count: data.pendingApprovals),
                     const SizedBox(height: 16),
@@ -528,6 +567,42 @@ class _QuickActions extends StatelessWidget {
             scheme: scheme,
           ),
       ],
+    );
+  }
+}
+
+class _ConnectTile extends StatelessWidget {
+  const _ConnectTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: scheme.tertiaryContainer.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: scheme.tertiary),
+            const SizedBox(height: 8),
+            Text(label, style: Theme.of(context).textTheme.labelLarge),
+          ],
+        ),
+      ),
     );
   }
 }

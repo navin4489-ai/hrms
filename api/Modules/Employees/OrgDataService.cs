@@ -87,15 +87,17 @@ public sealed class OrgDataService : IOrgDataService
     {
         var type = ParseOrgUnitType(request.Type);
         ValidateDateRange(request.EffectiveFrom, request.EffectiveTo);
-        await ValidateOrgUnitReferencesAsync(request.ParentId, request.ManagerId, null, cancellationToken);
-        var code = request.Code.Trim();
         var orgId = ScopeOrgId;
+        await ValidateOrgUnitReferencesAsync(
+            request.ParentId, request.ManagerId, null, orgId, cancellationToken);
+        var code = request.Code.Trim();
         if (await _db.OrgUnits.AnyAsync(unit => unit.OrganizationId == orgId && unit.Code.ToLower() == code.ToLower(), cancellationToken))
             throw new ConflictException($"An organization unit with code '{code}' already exists.");
 
         var unit = new OrgUnit
         {
             Id = Guid.NewGuid(),
+            OrganizationId = orgId,
             Code = code,
             Name = request.Name.Trim(),
             Type = type,
@@ -121,7 +123,8 @@ public sealed class OrgDataService : IOrgDataService
             ?? throw new NotFoundException("Organization unit not found.");
         var type = ParseOrgUnitType(request.Type);
         ValidateDateRange(request.EffectiveFrom, request.EffectiveTo);
-        await ValidateOrgUnitReferencesAsync(request.ParentId, request.ManagerId, id, cancellationToken);
+        await ValidateOrgUnitReferencesAsync(
+            request.ParentId, request.ManagerId, id, unit.OrganizationId, cancellationToken);
         if (await _db.OrgUnits.AnyAsync(item => item.Id != id &&
                 item.OrganizationId == unit.OrganizationId &&
                 item.Code.ToLower() == request.Code.Trim().ToLower(), cancellationToken))
@@ -155,6 +158,7 @@ public sealed class OrgDataService : IOrgDataService
         var location = new Location
         {
             Id = Guid.NewGuid(),
+            OrganizationId = orgId,
             Code = code,
             Name = request.Name.Trim(),
             City = request.City.Trim(),
@@ -205,6 +209,7 @@ public sealed class OrgDataService : IOrgDataService
         var designation = new Designation
         {
             Id = Guid.NewGuid(),
+            OrganizationId = orgId,
             Code = code,
             Name = request.Name.Trim(),
             Grade = string.IsNullOrWhiteSpace(request.Grade) ? null : request.Grade.Trim(),
@@ -242,7 +247,7 @@ public sealed class OrgDataService : IOrgDataService
     }
 
     private async Task ValidateOrgUnitReferencesAsync(Guid? parentId, Guid? managerId, Guid? unitId,
-        CancellationToken cancellationToken)
+        Guid organizationId, CancellationToken cancellationToken)
     {
         if (parentId.HasValue)
         {
@@ -250,7 +255,8 @@ public sealed class OrgDataService : IOrgDataService
                 throw new RequestValidationException("An organization unit cannot be its own parent.",
                     new() { ["parentId"] = ["Choose another parent organization unit."] });
             var parent = await _db.OrgUnits.AsNoTracking()
-                .FirstOrDefaultAsync(item => item.Id == parentId.Value, cancellationToken);
+                .FirstOrDefaultAsync(item => item.Id == parentId.Value &&
+                    item.OrganizationId == organizationId, cancellationToken);
             if (parent is null)
                 throw new RequestValidationException("The parent organization unit is invalid.",
                     new() { ["parentId"] = ["The parent organization unit does not exist."] });
@@ -270,7 +276,8 @@ public sealed class OrgDataService : IOrgDataService
             }
         }
         if (managerId.HasValue && !await _db.Employees.AsNoTracking()
-                .AnyAsync(item => item.Id == managerId.Value, cancellationToken))
+                .AnyAsync(item => item.Id == managerId.Value &&
+                    item.OrganizationId == organizationId, cancellationToken))
             throw new RequestValidationException("The reporting manager is invalid.",
                 new() { ["managerId"] = ["The selected manager does not exist."] });
     }
