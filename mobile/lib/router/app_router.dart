@@ -10,6 +10,14 @@ import '../features/admin/admin_reports_screen.dart';
 import '../features/admin/admin_payroll_periods_screen.dart';
 import '../features/admin/admin_documents_screen.dart';
 import '../features/admin/admin_assets_screen.dart';
+import '../features/admin/admin_organization_screen.dart';
+import '../features/admin/admin_lifecycle_screen.dart';
+import '../features/admin/admin_workflows_screen.dart';
+import '../features/admin/admin_leave_policies_screen.dart';
+import '../features/admin/admin_employee_import_screen.dart';
+import '../features/admin/admin_shifts_screen.dart';
+import '../features/admin/admin_payroll_import_screen.dart';
+import '../features/admin/admin_performance_screen.dart';
 import '../features/announcements/announcements_screen.dart';
 import '../features/approvals/approval_detail_screen.dart';
 import '../features/approvals/approvals_screen.dart';
@@ -237,6 +245,17 @@ final routerProvider = Provider<GoRouter>((ref) {
                       GoRoute(
                         path: 'payroll-periods',
                         builder: (_, __) => const AdminPayrollPeriodsScreen(),
+                        routes: [
+                          GoRoute(
+                            path: ':periodId/import',
+                            builder: (_, state) => AdminPayrollImportScreen(
+                              periodId: state.pathParameters['periodId']!,
+                              periodLabel:
+                                  state.uri.queryParameters['label'] ??
+                                  'Payroll period',
+                            ),
+                          ),
+                        ],
                       ),
                       GoRoute(
                         path: 'documents',
@@ -245,6 +264,34 @@ final routerProvider = Provider<GoRouter>((ref) {
                       GoRoute(
                         path: 'assets',
                         builder: (_, __) => const AdminAssetsScreen(),
+                      ),
+                      GoRoute(
+                        path: 'organization',
+                        builder: (_, __) => const AdminOrganizationScreen(),
+                      ),
+                      GoRoute(
+                        path: 'lifecycle',
+                        builder: (_, __) => const AdminLifecycleScreen(),
+                      ),
+                      GoRoute(
+                        path: 'workflows',
+                        builder: (_, __) => const AdminWorkflowsScreen(),
+                      ),
+                      GoRoute(
+                        path: 'leave',
+                        builder: (_, __) => const AdminLeavePoliciesScreen(),
+                      ),
+                      GoRoute(
+                        path: 'employee-import',
+                        builder: (_, __) => const AdminEmployeeImportScreen(),
+                      ),
+                      GoRoute(
+                        path: 'shifts',
+                        builder: (_, __) => const AdminShiftsScreen(),
+                      ),
+                      GoRoute(
+                        path: 'performance',
+                        builder: (_, __) => const AdminPerformanceScreen(),
                       ),
                     ],
                   ),

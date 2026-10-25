@@ -94,6 +94,7 @@ final locationsProvider = FutureProvider<List<LocationEntry>>((ref) async {
 /// an employee record.
 class EmployeeCreateOptions {
   const EmployeeCreateOptions({
+    required this.orgUnits,
     required this.departments,
     required this.legalEntities,
     required this.locations,
@@ -101,6 +102,7 @@ class EmployeeCreateOptions {
     required this.managers,
   });
 
+  final List<OrgUnit> orgUnits;
   final List<OrgUnit> departments;
   final List<OrgUnit> legalEntities;
   final List<LocationEntry> locations;
@@ -145,6 +147,7 @@ final employeeCreateOptionsProvider = FutureProvider<EmployeeCreateOptions>((
       .toList(growable: false);
 
   return EmployeeCreateOptions(
+    orgUnits: orgUnits,
     departments: orgUnits.where((unit) => unit.type == 'Department').toList(),
     legalEntities: orgUnits.where((unit) => unit.isLegalEntity).toList(),
     locations: locations,

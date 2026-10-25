@@ -24,6 +24,8 @@ public interface IAssetService : IAppService
     Task<AssetInventoryResult> ListInventoryAsync(AssetInventoryQuery query, PageRequest page, CancellationToken cancellationToken = default);
     Task<AssetInventoryItem> CreateAssetAsync(CreateAssetForm form, CancellationToken cancellationToken = default);
     Task<AssetAssignmentResult> AssignAsync(Guid id, AssignAssetForm form, CancellationToken cancellationToken = default);
+    Task<AssetLifecycleResult> ApplyLifecycleActionAsync(Guid id, AssetLifecycleRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class AssetService : IAssetService
@@ -270,6 +272,125 @@ public sealed class AssetService : IAssetService
             Status = asset.Status
         };
     }
+
+    public async Task<AssetLifecycleResult> ApplyLifecycleActionAsync(Guid id,
+        AssetLifecycleRequest request, CancellationToken cancellationToken = default)
+    {
+        _currentUser.EnsureActive();
+        var asset = await _db.Set<Asset>().FirstOrDefaultAsync(item => item.Id == id, cancellationToken)
+            ?? throw new NotFoundException("The asset was not found.");
+        var action = request.Action.Trim();
+        var oldStatus = asset.Status;
+        var oldCustodian = asset.CustodianEmployeeId;
+        var reason = request.Reason.Trim();
+        if (reason.Length == 0)
+            throw new RequestValidationException("A lifecycle reason is required.",
+                new() { ["reason"] = ["Enter why this asset is being transferred or its status changed."] });
+
+        switch (action.ToLowerInvariant())
+        {
+            case "returntoinventory":
+                if (asset.Status is not (AssetStatus.Assigned or AssetStatus.ReturnRequested))
+                    throw new ConflictException("Only assigned or return-requested assets can be returned to inventory.");
+                asset.Status = AssetStatus.Available;
+                asset.CustodianEmployeeId = null;
+                asset.ReturnedAt = _clock.UtcNow;
+                asset.Condition = NormalizeCondition(request.Condition ?? asset.ReturnCondition);
+                asset.ReturnDueDate = null;
+                asset.ReturnRequestedAt = null;
+                asset.ReturnRequestReason = null;
+                asset.ReturnCondition = null;
+                break;
+            case "sendtorepair":
+                if (asset.Status is not (AssetStatus.Assigned or AssetStatus.ReturnRequested))
+                    throw new ConflictException("Only assigned or return-requested assets can be sent to repair.");
+                asset.Status = AssetStatus.UnderRepair;
+                asset.CustodianEmployeeId = null;
+                asset.ReturnedAt = _clock.UtcNow;
+                asset.Condition = NormalizeCondition(request.Condition ?? asset.ReturnCondition);
+                asset.ReturnDueDate = null;
+                asset.ReturnRequestedAt = null;
+                asset.ReturnRequestReason = null;
+                asset.ReturnCondition = null;
+                break;
+            case "repaircomplete":
+                if (asset.Status != AssetStatus.UnderRepair)
+                    throw new ConflictException("Only an asset under repair can be marked repaired.");
+                asset.Status = AssetStatus.Available;
+                asset.Condition = NormalizeCondition(request.Condition);
+                break;
+            case "marklost":
+                if (asset.Status is not (AssetStatus.Assigned or AssetStatus.ReturnRequested or AssetStatus.UnderRepair))
+                    throw new ConflictException("This asset cannot be marked lost from its current status.");
+                asset.Status = AssetStatus.Lost;
+                asset.CustodianEmployeeId = null;
+                asset.ReturnDueDate = null;
+                break;
+            case "markdamaged":
+                if (asset.Status is not (AssetStatus.Assigned or AssetStatus.ReturnRequested or AssetStatus.UnderRepair))
+                    throw new ConflictException("This asset cannot be marked damaged from its current status.");
+                asset.Status = AssetStatus.Damaged;
+                asset.CustodianEmployeeId = null;
+                asset.ReturnDueDate = null;
+                asset.Condition = NormalizeCondition(request.Condition);
+                break;
+            case "dispose":
+                if (asset.Status == AssetStatus.Retired)
+                    throw new ConflictException("This asset has already been disposed.");
+                asset.Status = AssetStatus.Retired;
+                asset.CustodianEmployeeId = null;
+                asset.ReturnDueDate = null;
+                asset.ReturnedAt = _clock.UtcNow;
+                break;
+            case "transfer":
+                if (asset.Status is not (AssetStatus.Assigned or AssetStatus.ReturnRequested))
+                    throw new ConflictException("Only assigned assets can be transferred.");
+                if (request.EmployeeId is not { } employeeId)
+                    throw new RequestValidationException("A new custodian is required.",
+                        new() { ["employeeId"] = ["Choose the employee receiving the transferred asset."] });
+                if (asset.CustodianEmployeeId == employeeId)
+                    throw new RequestValidationException("The asset is already assigned to this employee.",
+                        new() { ["employeeId"] = ["Choose a different employee to transfer the asset."] });
+                var employee = await _db.Employees.FirstOrDefaultAsync(item => item.Id == employeeId, cancellationToken)
+                    ?? throw new NotFoundException("The receiving employee was not found.");
+                if (!employee.IsActive)
+                    throw new RequestValidationException("The receiving employee is not active.",
+                        new() { ["employeeId"] = ["Assets can only be transferred to an active employee."] });
+                asset.Status = AssetStatus.Assigned;
+                asset.CustodianEmployeeId = employee.Id;
+                asset.IssuedAt = _clock.UtcNow;
+                asset.AcknowledgedAt = null;
+                asset.AcknowledgementNote = null;
+                asset.ReturnRequestedAt = null;
+                asset.ReturnRequestReason = null;
+                asset.ReturnCondition = null;
+                asset.ReturnedAt = null;
+                if (!string.IsNullOrWhiteSpace(request.Condition)) asset.Condition = request.Condition.Trim();
+                await NotifyUserAsync(employee.Id, "Asset transferred",
+                    $"{asset.Name} ({asset.AssetTag}) has been transferred to you. Please acknowledge receipt in the app.");
+                break;
+            default:
+                throw new RequestValidationException("The asset action is not supported.",
+                    new() { ["action"] = ["Choose ReturnToInventory, SendToRepair, RepairComplete, MarkLost, MarkDamaged, Dispose or Transfer."] });
+        }
+
+        _audit.Add("asset.lifecycle", nameof(Asset), asset.Id.ToString(), details: new
+        {
+            action,
+            reason,
+            previousStatus = oldStatus.ToString(),
+            currentStatus = asset.Status.ToString(),
+            previousCustodianId = oldCustodian,
+            currentCustodianId = asset.CustodianEmployeeId,
+            condition = asset.Condition
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return new AssetLifecycleResult(asset.Id, asset.AssetTag, asset.Status,
+            asset.CustodianEmployeeId, action);
+    }
+
+    private static string? NormalizeCondition(string? condition) =>
+        string.IsNullOrWhiteSpace(condition) ? null : condition.Trim();
 
     // ---------------------------------------------------------------- helpers
 

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Wintech.Hrms.Api.Security.Auth;
 
 namespace Wintech.Hrms.Api.Modules.Performance;
 
@@ -104,4 +105,59 @@ public sealed class TrainingController : ControllerBase
     public async Task<ActionResult<CourseCompletionResult>> Complete(Guid id, [FromBody] CompleteCourseForm form,
         CancellationToken cancellationToken)
         => Ok(await _training.CompleteAsync(id, form.Score, cancellationToken));
+}
+
+/// <summary>Administrative management for review cycles and training catalogue.</summary>
+[ApiController]
+[Route("api/v1/admin")]
+[Authorize]
+[Produces("application/json")]
+public sealed class PerformanceAdministrationController : ControllerBase
+{
+    private readonly IPerformanceService _performance;
+    private readonly ITrainingService _training;
+
+    public PerformanceAdministrationController(IPerformanceService performance, ITrainingService training)
+    {
+        _performance = performance;
+        _training = training;
+    }
+
+    [HttpGet("performance-cycles")]
+    [Permission(Wintech.Hrms.Api.Security.Permissions.PerformanceManage)]
+    public async Task<ActionResult<IReadOnlyList<PerformanceCycleAdminDto>>> Cycles(CancellationToken cancellationToken)
+        => Ok(await _performance.GetAdminCyclesAsync(cancellationToken));
+
+    [HttpPost("performance-cycles")]
+    [Permission(Wintech.Hrms.Api.Security.Permissions.PerformanceManage)]
+    [ProducesResponseType(typeof(PerformanceCycleAdminDto), StatusCodes.Status201Created)]
+    public async Task<ActionResult<PerformanceCycleAdminDto>> CreateCycle(
+        [FromBody] UpsertPerformanceCycleRequest request, CancellationToken cancellationToken)
+        => StatusCode(StatusCodes.Status201Created,
+            await _performance.UpsertCycleAsync(null, request, cancellationToken));
+
+    [HttpPut("performance-cycles/{id:guid}")]
+    [Permission(Wintech.Hrms.Api.Security.Permissions.PerformanceManage)]
+    public async Task<ActionResult<PerformanceCycleAdminDto>> UpdateCycle(Guid id,
+        [FromBody] UpsertPerformanceCycleRequest request, CancellationToken cancellationToken)
+        => Ok(await _performance.UpsertCycleAsync(id, request, cancellationToken));
+
+    [HttpGet("training/courses")]
+    [Permission(Wintech.Hrms.Api.Security.Permissions.TrainingManage)]
+    public async Task<ActionResult<IReadOnlyList<TrainingCourseAdminDto>>> Courses(CancellationToken cancellationToken)
+        => Ok(await _training.GetAdminCoursesAsync(cancellationToken));
+
+    [HttpPost("training/courses")]
+    [Permission(Wintech.Hrms.Api.Security.Permissions.TrainingManage)]
+    [ProducesResponseType(typeof(TrainingCourseAdminDto), StatusCodes.Status201Created)]
+    public async Task<ActionResult<TrainingCourseAdminDto>> CreateCourse(
+        [FromBody] UpsertTrainingCourseRequest request, CancellationToken cancellationToken)
+        => StatusCode(StatusCodes.Status201Created,
+            await _training.UpsertCourseAsync(null, request, cancellationToken));
+
+    [HttpPut("training/courses/{id:guid}")]
+    [Permission(Wintech.Hrms.Api.Security.Permissions.TrainingManage)]
+    public async Task<ActionResult<TrainingCourseAdminDto>> UpdateCourse(Guid id,
+        [FromBody] UpsertTrainingCourseRequest request, CancellationToken cancellationToken)
+        => Ok(await _training.UpsertCourseAsync(id, request, cancellationToken));
 }

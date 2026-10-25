@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Wintech.Hrms.Api.Common.Paging;
+using Wintech.Hrms.Api.Security;
+using Wintech.Hrms.Api.Security.Auth;
 
 namespace Wintech.Hrms.Api.Modules.Leave;
 
@@ -32,6 +34,44 @@ public sealed class LeaveReferenceController : ControllerBase
     [ProducesResponseType(typeof(IReadOnlyList<LeavePolicyDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<LeavePolicyDto>>> Policies(CancellationToken cancellationToken)
         => Ok(await _leave.GetPoliciesAsync(cancellationToken));
+
+    [HttpGet("api/v1/admin/leave-types")]
+    [Permission(Permissions.AdminConfig)]
+    public async Task<ActionResult<IReadOnlyList<AdminLeaveTypeDto>>> AdminTypes(CancellationToken cancellationToken)
+        => Ok(await _leave.GetAdminLeaveTypesAsync(cancellationToken));
+
+    [HttpPost("api/v1/admin/leave-types")]
+    [Permission(Permissions.AdminConfig)]
+    [ProducesResponseType(typeof(AdminLeaveTypeDto), StatusCodes.Status201Created)]
+    public async Task<ActionResult<AdminLeaveTypeDto>> CreateType([FromBody] UpsertLeaveTypeRequest request,
+        CancellationToken cancellationToken)
+        => StatusCode(StatusCodes.Status201Created,
+            await _leave.UpsertLeaveTypeAsync(null, request, cancellationToken));
+
+    [HttpPut("api/v1/admin/leave-types/{id:guid}")]
+    [Permission(Permissions.AdminConfig)]
+    public async Task<ActionResult<AdminLeaveTypeDto>> UpdateType(Guid id,
+        [FromBody] UpsertLeaveTypeRequest request, CancellationToken cancellationToken)
+        => Ok(await _leave.UpsertLeaveTypeAsync(id, request, cancellationToken));
+
+    [HttpGet("api/v1/admin/leave-policies")]
+    [Permission(Permissions.AdminConfig)]
+    public async Task<ActionResult<IReadOnlyList<AdminLeavePolicyDto>>> AdminPolicies(CancellationToken cancellationToken)
+        => Ok(await _leave.GetAdminLeavePoliciesAsync(cancellationToken));
+
+    [HttpPost("api/v1/admin/leave-policies")]
+    [Permission(Permissions.AdminConfig)]
+    [ProducesResponseType(typeof(AdminLeavePolicyDto), StatusCodes.Status201Created)]
+    public async Task<ActionResult<AdminLeavePolicyDto>> CreatePolicy([FromBody] UpsertLeavePolicyRequest request,
+        CancellationToken cancellationToken)
+        => StatusCode(StatusCodes.Status201Created,
+            await _leave.UpsertLeavePolicyAsync(null, request, cancellationToken));
+
+    [HttpPut("api/v1/admin/leave-policies/{id:guid}")]
+    [Permission(Permissions.AdminConfig)]
+    public async Task<ActionResult<AdminLeavePolicyDto>> UpdatePolicy(Guid id,
+        [FromBody] UpsertLeavePolicyRequest request, CancellationToken cancellationToken)
+        => Ok(await _leave.UpsertLeavePolicyAsync(id, request, cancellationToken));
 }
 
 /// <summary>Leave requests: submit, list, detail and cancel (docs/API_CONTRACT.md §8, FR-EMP-041..044).</summary>

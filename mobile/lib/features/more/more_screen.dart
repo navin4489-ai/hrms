@@ -48,9 +48,19 @@ class MoreScreen extends ConsumerWidget {
     ]);
     final canViewReports = auth.hasPermission('report.view');
     final canManagePayroll = auth.hasPermission('payroll.manage');
+    final canManagePerformance = auth.hasPermission('performance.manage');
+    final canManageTraining = auth.hasPermission('training.manage');
     final canCreateAnnouncement = auth.hasPermission('announcement.create');
-    final canManageDocuments = auth.hasPermission('document.manage');
-    final canManageAssets = auth.hasPermission('asset.manage');
+    final canManageDocuments =
+        auth.hasPermission('document.manage') &&
+        auth.hasPermission('employee.view');
+    final canManageAssets =
+        auth.hasPermission('asset.manage') &&
+        auth.hasPermission('employee.view');
+    final canManageLifecycle = auth.hasAnyPermission([
+      'employee.create',
+      'employee.manage',
+    ]);
 
     return AppScaffold(
       title: Strings.moreTitle,
@@ -75,9 +85,11 @@ class MoreScreen extends ConsumerWidget {
                 title: Text(user?.displayName ?? Strings.profile),
                 subtitle: Text(
                   [
-                    if (user?.designation != null) user!.designation!,
-                    if (user?.department != null) user!.department!,
-                    if (user?.employeeNumber != null) user!.employeeNumber!,
+                    if (user != null) ...[
+                      if (user.designation != null) user.designation!,
+                      if (user.department != null) user.department!,
+                      user.employeeNumber,
+                    ],
                   ].join(' · '),
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
@@ -118,9 +130,12 @@ class MoreScreen extends ConsumerWidget {
                 canManageSystem ||
                 canViewReports ||
                 canManagePayroll ||
+                canManagePerformance ||
+                canManageTraining ||
                 canCreateAnnouncement ||
                 canManageDocuments ||
-                canManageAssets) ...[
+                canManageAssets ||
+                canManageLifecycle) ...[
               const SizedBox(height: 12),
               SectionCard(
                 title: Strings.adminTools,
@@ -130,16 +145,23 @@ class MoreScreen extends ConsumerWidget {
                 ),
                 child: Column(
                   children: [
-                    _Tile(
-                      icon: Icons.manage_accounts_outlined,
-                      label: Strings.manageEmployees,
-                      onTap: () => context.go('/more/directory'),
-                    ),
+                    if (canManageEmployees)
+                      _Tile(
+                        icon: Icons.manage_accounts_outlined,
+                        label: Strings.manageEmployees,
+                        onTap: () => context.go('/more/directory'),
+                      ),
                     if (canCreateEmployee)
                       _Tile(
                         icon: Icons.person_add_alt_1_rounded,
                         label: Strings.addEmployee,
                         onTap: () => context.go('/more/directory/new'),
+                      ),
+                    if (canCreateEmployee)
+                      _Tile(
+                        icon: Icons.upload_file_outlined,
+                        label: 'Import employees from CSV',
+                        onTap: () => context.go('/more/admin/employee-import'),
                       ),
                     if (canManageUsers)
                       _Tile(
@@ -153,6 +175,31 @@ class MoreScreen extends ConsumerWidget {
                         label: 'System administration',
                         onTap: () => context.go('/more/admin/system'),
                       ),
+                    if (auth.hasPermission('admin.config') &&
+                        auth.hasPermission('employee.view'))
+                      _Tile(
+                        icon: Icons.account_tree_outlined,
+                        label: 'Organization setup',
+                        onTap: () => context.go('/more/admin/organization'),
+                      ),
+                    if (auth.hasPermission('admin.config'))
+                      _Tile(
+                        icon: Icons.alt_route_rounded,
+                        label: 'Approval workflows',
+                        onTap: () => context.go('/more/admin/workflows'),
+                      ),
+                    if (auth.hasPermission('admin.config'))
+                      _Tile(
+                        icon: Icons.event_available_outlined,
+                        label: 'Leave administration',
+                        onTap: () => context.go('/more/admin/leave'),
+                      ),
+                    if (auth.hasPermission('admin.config'))
+                      _Tile(
+                        icon: Icons.schedule_outlined,
+                        label: 'Shift configuration',
+                        onTap: () => context.go('/more/admin/shifts'),
+                      ),
                     if (canViewReports)
                       _Tile(
                         icon: Icons.query_stats_rounded,
@@ -164,6 +211,12 @@ class MoreScreen extends ConsumerWidget {
                         icon: Icons.payments_outlined,
                         label: 'Payroll periods',
                         onTap: () => context.go('/more/admin/payroll-periods'),
+                      ),
+                    if (canManagePerformance || canManageTraining)
+                      _Tile(
+                        icon: Icons.school_outlined,
+                        label: 'Performance & learning',
+                        onTap: () => context.go('/more/admin/performance'),
                       ),
                     if (canCreateAnnouncement)
                       _Tile(
@@ -182,6 +235,13 @@ class MoreScreen extends ConsumerWidget {
                         icon: Icons.inventory_2_outlined,
                         label: 'Asset inventory',
                         onTap: () => context.go('/more/admin/assets'),
+                      ),
+                    if (canManageLifecycle &&
+                        auth.hasPermission('employee.view'))
+                      _Tile(
+                        icon: Icons.checklist_rounded,
+                        label: 'Onboarding & offboarding',
+                        onTap: () => context.go('/more/admin/lifecycle'),
                       ),
                   ],
                 ),

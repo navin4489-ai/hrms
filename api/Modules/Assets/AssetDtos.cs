@@ -61,6 +61,23 @@ public sealed class AssignAssetForm
     public DateOnly? ReturnDueDate { get; set; }
 }
 
+public sealed class AssetLifecycleRequest
+{
+    [Required, StringLength(30)]
+    public string Action { get; init; } = string.Empty;
+
+    [Required, StringLength(500)]
+    public string Reason { get; init; } = string.Empty;
+
+    [StringLength(100)]
+    public string? Condition { get; init; }
+
+    public Guid? EmployeeId { get; init; }
+}
+
+public sealed record AssetLifecycleResult(Guid AssetId, string AssetTag, AssetStatus Status,
+    Guid? CustodianEmployeeId, string Action);
+
 public sealed class AssetInventoryQuery
 {
     public AssetStatus? Status { get; set; }

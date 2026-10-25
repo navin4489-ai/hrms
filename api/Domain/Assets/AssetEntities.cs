@@ -17,7 +17,10 @@ public enum AssetStatus
     Assigned = 1,
     ReturnRequested = 2,
     Returned = 3,
-    Retired = 4
+    Retired = 4,
+    UnderRepair = 5,
+    Lost = 6,
+    Damaged = 7
 }
 
 /// <summary>

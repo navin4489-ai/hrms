@@ -102,6 +102,108 @@ public sealed class LeaveService : ILeaveService
             p.NegativeBalanceAllowed, p.NoticeDays, p.AttachmentRequired)).ToList();
     }
 
+    public async Task<IReadOnlyList<AdminLeaveTypeDto>> GetAdminLeaveTypesAsync(CancellationToken cancellationToken = default)
+    {
+        RequireAdminConfig();
+        var items = await _db.Set<LeaveType>().AsNoTracking()
+            .OrderBy(item => item.DisplayOrder).ThenBy(item => item.Code)
+            .ToListAsync(cancellationToken);
+        return items.Select(MapAdminLeaveType).ToList();
+    }
+
+    public async Task<IReadOnlyList<AdminLeavePolicyDto>> GetAdminLeavePoliciesAsync(CancellationToken cancellationToken = default)
+    {
+        RequireAdminConfig();
+        var items = await _db.Set<LeavePolicy>().AsNoTracking()
+            .OrderBy(item => item.Code)
+            .ToListAsync(cancellationToken);
+        return items.Select(MapAdminLeavePolicy).ToList();
+    }
+
+    public async Task<AdminLeaveTypeDto> UpsertLeaveTypeAsync(Guid? id, UpsertLeaveTypeRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        RequireAdminConfig();
+        var code = request.Code.Trim();
+        if (await _db.Set<LeaveType>().AnyAsync(item => item.Id != (id ?? Guid.Empty) &&
+                item.Code.ToLower() == code.ToLower(), cancellationToken))
+            throw new ConflictException($"Leave type code '{code}' is already in use.");
+        var item = id.HasValue
+            ? await _db.Set<LeaveType>().FirstOrDefaultAsync(row => row.Id == id.Value, cancellationToken)
+                ?? throw new NotFoundException("Leave type not found.")
+            : new LeaveType { Id = Guid.NewGuid() };
+        var old = id.HasValue ? new { item.Code, item.Name, item.IsActive } : null;
+        item.Code = code;
+        item.Name = request.Name.Trim();
+        item.IsPaid = request.IsPaid;
+        item.RequiresAttachment = request.RequiresAttachment;
+        item.AllowsHalfDay = request.AllowsHalfDay;
+        item.MaxConsecutiveDays = request.MaxConsecutiveDays;
+        item.Unit = request.Unit.Trim();
+        item.DisplayOrder = request.DisplayOrder;
+        item.IsActive = request.IsActive;
+        if (!id.HasValue) _db.Add(item);
+        _audit.Add(id.HasValue ? "leave_type.update" : "leave_type.create", nameof(LeaveType),
+            item.Id.ToString(), details: new { old, current = new { item.Code, item.Name, item.IsActive } });
+        await _db.SaveChangesAsync(cancellationToken);
+        return MapAdminLeaveType(item);
+    }
+
+    public async Task<AdminLeavePolicyDto> UpsertLeavePolicyAsync(Guid? id, UpsertLeavePolicyRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        RequireAdminConfig();
+        var code = request.Code.Trim();
+        if (await _db.Set<LeavePolicy>().AnyAsync(item => item.Id != (id ?? Guid.Empty) &&
+                item.Code.ToLower() == code.ToLower(), cancellationToken))
+            throw new ConflictException($"Leave policy code '{code}' is already in use.");
+        if (request.LeaveTypeId.HasValue && !await _db.Set<LeaveType>().AnyAsync(item =>
+                item.Id == request.LeaveTypeId.Value, cancellationToken))
+            throw new RequestValidationException("The selected leave type does not exist.",
+                new() { ["leaveTypeId"] = ["Choose an existing leave type or leave blank for all types."] });
+        if (!Enum.TryParse<LeaveAccrualFrequency>(request.AccrualFrequency, true, out var frequency) ||
+            !Enum.IsDefined(frequency))
+            throw new RequestValidationException("Accrual frequency is invalid.",
+                new() { ["accrualFrequency"] = ["Choose None, Monthly, Quarterly, Annual or OnDemand."] });
+        var item = id.HasValue
+            ? await _db.Set<LeavePolicy>().FirstOrDefaultAsync(row => row.Id == id.Value, cancellationToken)
+                ?? throw new NotFoundException("Leave policy not found.")
+            : new LeavePolicy { Id = Guid.NewGuid() };
+        var old = id.HasValue ? new { item.Code, item.Name, item.AnnualEntitlementDays, item.IsActive } : null;
+        item.Code = code;
+        item.Name = request.Name.Trim();
+        item.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+        item.LeaveTypeId = request.LeaveTypeId;
+        item.AccrualFrequency = frequency;
+        item.AnnualEntitlementDays = request.AnnualEntitlementDays;
+        item.CarryForwardMaxDays = request.CarryForwardMaxDays;
+        item.NegativeBalanceAllowed = request.NegativeBalanceAllowed;
+        item.NoticeDays = request.NoticeDays;
+        item.AttachmentRequired = request.AttachmentRequired;
+        item.IsActive = request.IsActive;
+        if (!id.HasValue) _db.Add(item);
+        _audit.Add(id.HasValue ? "leave_policy.update" : "leave_policy.create", nameof(LeavePolicy),
+            item.Id.ToString(), details: new { old, current = new { item.Code, item.Name, item.AnnualEntitlementDays, item.IsActive } });
+        await _db.SaveChangesAsync(cancellationToken);
+        return MapAdminLeavePolicy(item);
+    }
+
+    private void RequireAdminConfig()
+    {
+        _currentUser.EnsureActive();
+        if (!_currentUser.HasPermission(Permissions.AdminConfig))
+            throw new ForbiddenException("You do not have permission to administer leave policies.");
+    }
+
+    private static AdminLeaveTypeDto MapAdminLeaveType(LeaveType item) => new(
+        item.Id, item.Code, item.Name, item.IsPaid, item.RequiresAttachment, item.AllowsHalfDay,
+        item.MaxConsecutiveDays, item.Unit, item.DisplayOrder, item.IsActive);
+
+    private static AdminLeavePolicyDto MapAdminLeavePolicy(LeavePolicy item) => new(
+        item.Id, item.Code, item.Name, item.Description, item.LeaveTypeId, item.AccrualFrequency.ToString(),
+        item.AnnualEntitlementDays, item.CarryForwardMaxDays, item.NegativeBalanceAllowed,
+        item.NoticeDays, item.AttachmentRequired, item.IsActive);
+
     // ---------------------------------------------------------------- submit
 
     public async Task<LeaveRequestCreatedDto> CreateRequestAsync(LeaveRequestCreateDto request,
@@ -548,6 +650,16 @@ public sealed class LeaveService : ILeaveService
     private async Task<Scope> ResolveScopeAsync(bool team, Guid? employeeId, CancellationToken cancellationToken)
     {
         var mine = RequireEmployeeId();
+
+        // SuperAdmin may review leave requests across the tenant, not only direct reports.
+        if (_currentUser.HasPermission(Permissions.All))
+        {
+            if (employeeId is not { } adminTarget) return new Scope(true, []);
+            var exists = await _db.Employees.AsNoTracking()
+                .AnyAsync(e => e.Id == adminTarget, cancellationToken);
+            if (!exists) throw new NotFoundException();
+            return new Scope(false, [adminTarget]);
+        }
 
         if (team)
         {

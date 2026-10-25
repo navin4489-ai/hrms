@@ -6,6 +6,8 @@ using Wintech.Hrms.Api.Common.Registration;
 using Wintech.Hrms.Api.Common.Time;
 using Wintech.Hrms.Api.Data;
 using Wintech.Hrms.Api.Domain.Performance;
+using Wintech.Hrms.Api.Domain.Employees;
+using Wintech.Hrms.Api.Security;
 
 namespace Wintech.Hrms.Api.Modules.Performance;
 
@@ -20,6 +22,9 @@ public interface IPerformanceService : IAppService
     Task<SelfAssessmentResult> SubmitSelfAssessmentAsync(SubmitSelfAssessmentForm form, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ReviewItem>> ListReviewsAsync(CancellationToken cancellationToken = default);
     Task AcknowledgeReviewAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PerformanceCycleAdminDto>> GetAdminCyclesAsync(CancellationToken cancellationToken = default);
+    Task<PerformanceCycleAdminDto> UpsertCycleAsync(Guid? id, UpsertPerformanceCycleRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class PerformanceService : IPerformanceService
@@ -181,6 +186,84 @@ public sealed class PerformanceService : IPerformanceService
         }
     }
 
+    public async Task<IReadOnlyList<PerformanceCycleAdminDto>> GetAdminCyclesAsync(CancellationToken cancellationToken = default)
+    {
+        EnsurePerformanceManage();
+        var cycles = await _db.Set<PerformanceCycle>().AsNoTracking()
+            .OrderByDescending(cycle => cycle.StartDate)
+            .ToListAsync(cancellationToken);
+        var ids = cycles.Select(cycle => cycle.Id).ToArray();
+        var submitted = await _db.Set<SelfAssessment>().AsNoTracking()
+            .Where(item => ids.Contains(item.CycleId))
+            .GroupBy(item => item.CycleId)
+            .Select(group => new { CycleId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(item => item.CycleId, item => item.Count, cancellationToken);
+        var employees = await _db.Employees.CountAsync(employee =>
+            employee.EmploymentStatus == EmploymentStatus.Active ||
+            employee.EmploymentStatus == EmploymentStatus.Probation,
+            cancellationToken);
+        return cycles.Select(cycle => new PerformanceCycleAdminDto(
+            cycle.Id, cycle.Name, cycle.StartDate, cycle.EndDate, cycle.Status,
+            cycle.SelfAssessmentDueDate, employees,
+            submitted.GetValueOrDefault(cycle.Id))).ToList();
+    }
+
+    public async Task<PerformanceCycleAdminDto> UpsertCycleAsync(Guid? id,
+        UpsertPerformanceCycleRequest request, CancellationToken cancellationToken = default)
+    {
+        EnsurePerformanceManage();
+        if (request.EndDate < request.StartDate)
+            throw new RequestValidationException("The cycle date range is invalid.",
+                new() { ["endDate"] = ["End date must be on or after start date."] });
+        if (request.SelfAssessmentDueDate is { } dueDate && dueDate < request.StartDate)
+            throw new RequestValidationException("The self-assessment due date is invalid.",
+                new() { ["selfAssessmentDueDate"] = ["Due date must be on or after the cycle start date."] });
+        if (request.Status == PerformanceCycleStatus.Open &&
+            await _db.Set<PerformanceCycle>().AnyAsync(cycle =>
+                cycle.Id != (id ?? Guid.Empty) && cycle.Status == PerformanceCycleStatus.Open &&
+                cycle.StartDate <= request.EndDate && cycle.EndDate >= request.StartDate,
+                cancellationToken))
+            throw new ConflictException("An open performance cycle already overlaps this date range.");
+
+        var cycle = id.HasValue
+            ? await _db.Set<PerformanceCycle>().FirstOrDefaultAsync(item => item.Id == id.Value, cancellationToken)
+                ?? throw new NotFoundException("Performance cycle not found.")
+            : new PerformanceCycle { Id = Guid.NewGuid() };
+        if (id.HasValue && await _db.Set<SelfAssessment>().AnyAsync(item => item.CycleId == id.Value, cancellationToken) &&
+            (cycle.StartDate != request.StartDate || cycle.EndDate != request.EndDate))
+            throw new ConflictException("Cycle dates cannot be changed after employees submit assessments.");
+        var old = id.HasValue
+            ? new { cycle.Name, cycle.StartDate, cycle.EndDate, cycle.Status }
+            : null;
+        cycle.Name = request.Name.Trim();
+        cycle.StartDate = request.StartDate;
+        cycle.EndDate = request.EndDate;
+        cycle.SelfAssessmentDueDate = request.SelfAssessmentDueDate;
+        cycle.Status = request.Status;
+        if (!id.HasValue) _db.Add(cycle);
+        _audit.Add(id.HasValue ? "performance.cycle.update" : "performance.cycle.create",
+            nameof(PerformanceCycle), cycle.Id.ToString(), details: new
+            {
+                old,
+                current = new { cycle.Name, cycle.StartDate, cycle.EndDate, cycle.Status, cycle.SelfAssessmentDueDate }
+            });
+        await _db.SaveChangesAsync(cancellationToken);
+        var employeeCount = await _db.Employees.CountAsync(employee =>
+            employee.EmploymentStatus == EmploymentStatus.Active ||
+            employee.EmploymentStatus == EmploymentStatus.Probation,
+            cancellationToken);
+        var submittedCount = await _db.Set<SelfAssessment>().CountAsync(item => item.CycleId == cycle.Id, cancellationToken);
+        return new PerformanceCycleAdminDto(cycle.Id, cycle.Name, cycle.StartDate, cycle.EndDate,
+            cycle.Status, cycle.SelfAssessmentDueDate, employeeCount, submittedCount);
+    }
+
+    private void EnsurePerformanceManage()
+    {
+        _currentUser.EnsureActive();
+        if (!_currentUser.HasPermission(Permissions.PerformanceManage))
+            throw new ForbiddenException("You do not have permission to administer performance cycles.");
+    }
+
     private Guid RequireEmployeeId() => _currentUser.EmployeeId
         ?? throw new BusinessRuleException("No employee record is linked to your account. Contact HR.");
 }
@@ -191,6 +274,9 @@ public interface ITrainingService : IAppService
     Task<IReadOnlyList<CourseItem>> ListCoursesAsync(TrainingCourseQuery query, CancellationToken cancellationToken = default);
     Task<EnrollmentResult> EnrollAsync(Guid courseId, CancellationToken cancellationToken = default);
     Task<CourseCompletionResult> CompleteAsync(Guid courseId, decimal? score, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<TrainingCourseAdminDto>> GetAdminCoursesAsync(CancellationToken cancellationToken = default);
+    Task<TrainingCourseAdminDto> UpsertCourseAsync(Guid? id, UpsertTrainingCourseRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class TrainingService : ITrainingService
@@ -271,6 +357,72 @@ public sealed class TrainingService : ITrainingService
                 ? $"/api/v1/training/courses/{i.Course.Id}/certificate"
                 : null
         }).ToList();
+    }
+
+    public async Task<IReadOnlyList<TrainingCourseAdminDto>> GetAdminCoursesAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureTrainingManage();
+        var courses = await _db.Set<TrainingCourse>().AsNoTracking()
+            .OrderBy(course => course.Title)
+            .ToListAsync(cancellationToken);
+        var ids = courses.Select(course => course.Id).ToArray();
+        var enrollmentGroups = await _db.Set<TrainingEnrollment>().AsNoTracking()
+            .Where(enrollment => ids.Contains(enrollment.CourseId))
+            .GroupBy(enrollment => enrollment.CourseId)
+            .Select(group => new
+            {
+                CourseId = group.Key,
+                Enrolled = group.Count(),
+                Completed = group.Count(enrollment => enrollment.Status == TrainingEnrollmentStatus.Completed)
+            })
+            .ToDictionaryAsync(item => item.CourseId, cancellationToken);
+        return courses.Select(course =>
+        {
+            enrollmentGroups.TryGetValue(course.Id, out var counts);
+            return new TrainingCourseAdminDto(course.Id, course.Title, course.Description, course.Category,
+                course.DurationHours, course.Mandatory, course.DueDate, course.IsActive,
+                counts?.Enrolled ?? 0, counts?.Completed ?? 0);
+        }).ToList();
+    }
+
+    public async Task<TrainingCourseAdminDto> UpsertCourseAsync(Guid? id,
+        UpsertTrainingCourseRequest request, CancellationToken cancellationToken = default)
+    {
+        EnsureTrainingManage();
+        var course = id.HasValue
+            ? await _db.Set<TrainingCourse>().FirstOrDefaultAsync(item => item.Id == id.Value, cancellationToken)
+                ?? throw new NotFoundException("Training course not found.")
+            : new TrainingCourse { Id = Guid.NewGuid() };
+        var old = id.HasValue
+            ? new { course.Title, course.Mandatory, course.DueDate, course.IsActive }
+            : null;
+        course.Title = request.Title.Trim();
+        course.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+        course.Category = string.IsNullOrWhiteSpace(request.Category) ? null : request.Category.Trim();
+        course.DurationHours = request.DurationHours;
+        course.Mandatory = request.Mandatory;
+        course.DueDate = request.DueDate;
+        course.IsActive = request.IsActive;
+        if (!id.HasValue) _db.Add(course);
+        _audit.Add(id.HasValue ? "training.course.update" : "training.course.create",
+            nameof(TrainingCourse), course.Id.ToString(), details: new
+            {
+                old,
+                current = new { course.Title, course.Mandatory, course.DueDate, course.IsActive }
+            });
+        await _db.SaveChangesAsync(cancellationToken);
+        var enrolled = await _db.Set<TrainingEnrollment>().CountAsync(item => item.CourseId == course.Id, cancellationToken);
+        var completed = await _db.Set<TrainingEnrollment>().CountAsync(item =>
+            item.CourseId == course.Id && item.Status == TrainingEnrollmentStatus.Completed, cancellationToken);
+        return new TrainingCourseAdminDto(course.Id, course.Title, course.Description, course.Category,
+            course.DurationHours, course.Mandatory, course.DueDate, course.IsActive, enrolled, completed);
+    }
+
+    private void EnsureTrainingManage()
+    {
+        _currentUser.EnsureActive();
+        if (!_currentUser.HasPermission(Permissions.TrainingManage))
+            throw new ForbiddenException("You do not have permission to administer the training catalogue.");
     }
 
     public async Task<EnrollmentResult> EnrollAsync(Guid courseId, CancellationToken cancellationToken = default)

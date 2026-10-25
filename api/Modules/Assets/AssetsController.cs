@@ -51,6 +51,15 @@ public sealed class AssetsController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, assignment);
     }
 
+    /// <summary>Transfer, return, repair, mark lost/damaged or dispose an asset with reason and audit history (FR-ADM-092).</summary>
+    [HttpPost("{id:guid}/lifecycle")]
+    [Authorize]
+    [Permission(Permissions.AssetManage)]
+    [ProducesResponseType(typeof(AssetLifecycleResult), StatusCodes.Status200OK)]
+    public async Task<ActionResult<AssetLifecycleResult>> ApplyLifecycleAction(Guid id,
+        [FromBody] AssetLifecycleRequest request, CancellationToken cancellationToken)
+        => Ok(await _assets.ApplyLifecycleActionAsync(id, request, cancellationToken));
+
     /// <summary>Assets assigned to the caller (FR-EMP-090).</summary>
     [HttpGet]
     [Authorize]

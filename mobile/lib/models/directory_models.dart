@@ -59,6 +59,11 @@ class OrgUnit {
     this.code,
     this.type,
     this.status,
+    this.parentId,
+    this.managerId,
+    this.managerName,
+    this.effectiveFrom,
+    this.effectiveTo,
   });
 
   factory OrgUnit.fromJson(Map<String, dynamic> json) => OrgUnit(
@@ -67,6 +72,11 @@ class OrgUnit {
     code: JsonX.str(json['code']),
     type: JsonX.str(json['type']),
     status: JsonX.str(json['status']),
+    parentId: JsonX.str(json['parentId']),
+    managerId: JsonX.str(json['managerId']),
+    managerName: JsonX.str(json['managerName']),
+    effectiveFrom: JsonX.str(json['effectiveFrom']),
+    effectiveTo: JsonX.str(json['effectiveTo']),
   );
 
   final String id;
@@ -74,23 +84,44 @@ class OrgUnit {
   final String? code;
   final String? type;
   final String? status;
+  final String? parentId;
+  final String? managerId;
+  final String? managerName;
+  final String? effectiveFrom;
+  final String? effectiveTo;
 
   bool get isLegalEntity => type == 'Entity' || type == 'LegalEntity';
 }
 
 /// `GET /locations` item (used for location filters).
 class LocationEntry {
-  const LocationEntry({required this.id, required this.name, this.city});
+  const LocationEntry({
+    required this.id,
+    required this.name,
+    this.city,
+    this.code,
+    this.country,
+    this.timeZone,
+    this.status,
+  });
 
   factory LocationEntry.fromJson(Map<String, dynamic> json) => LocationEntry(
     id: JsonX.strOr(json['id']),
     name: JsonX.strOr(json['name']),
     city: JsonX.str(json['city']),
+    code: JsonX.str(json['code']),
+    country: JsonX.str(json['country']),
+    timeZone: JsonX.str(json['timeZone']),
+    status: JsonX.str(json['status']),
   );
 
   final String id;
   final String name;
   final String? city;
+  final String? code;
+  final String? country;
+  final String? timeZone;
+  final String? status;
 }
 
 /// `GET /designations` item used by the create-employee form.

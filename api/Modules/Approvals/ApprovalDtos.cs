@@ -96,3 +96,27 @@ public sealed record WorkflowStepDto(
     ApproverType ApproverType,
     string? ApproverValue,
     int? SlaDays);
+
+public sealed class UpsertWorkflowVersionRequest
+{
+    [Required, StringLength(200)]
+    public string Name { get; init; } = string.Empty;
+
+    [MinLength(1), MaxLength(10)]
+    public List<UpsertWorkflowStepRequest> Steps { get; init; } = [];
+}
+
+public sealed class UpsertWorkflowStepRequest
+{
+    [Required, StringLength(200)]
+    public string Name { get; init; } = string.Empty;
+
+    [Required]
+    public ApproverType? ApproverType { get; init; }
+
+    [StringLength(200)]
+    public string? ApproverValue { get; init; }
+
+    [Range(1, 365)]
+    public int? SlaDays { get; init; }
+}

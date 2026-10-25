@@ -12,8 +12,13 @@ namespace Wintech.Hrms.Api.Modules.Approvals;
 public sealed class WorkflowsController : ControllerBase
 {
     private readonly IApprovalQueryService _queries;
+    private readonly IWorkflowAdministrationService _administration;
 
-    public WorkflowsController(IApprovalQueryService queries) => _queries = queries;
+    public WorkflowsController(IApprovalQueryService queries, IWorkflowAdministrationService administration)
+    {
+        _queries = queries;
+        _administration = administration;
+    }
 
     /// <summary>List every workflow definition with its steps (admin.config).</summary>
     [HttpGet]
@@ -22,4 +27,14 @@ public sealed class WorkflowsController : ControllerBase
     [ProducesResponseType(typeof(IReadOnlyList<WorkflowDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<WorkflowDto>>> List(CancellationToken cancellationToken)
         => Ok(await _queries.GetWorkflowsAsync(cancellationToken));
+
+    /// <summary>Publish a new immutable version; existing approval tasks continue using their snapshotted version.</summary>
+    [HttpPost("{id:guid}/versions")]
+    [Authorize]
+    [Permission(Permissions.AdminConfig)]
+    [ProducesResponseType(typeof(WorkflowDto), StatusCodes.Status201Created)]
+    public async Task<ActionResult<WorkflowDto>> CreateVersion(Guid id,
+        [FromBody] UpsertWorkflowVersionRequest request, CancellationToken cancellationToken)
+        => StatusCode(StatusCodes.Status201Created,
+            await _administration.CreateVersionAsync(id, request, cancellationToken));
 }

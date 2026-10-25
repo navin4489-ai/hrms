@@ -30,6 +30,48 @@ public sealed class TrainingCourseQuery
     public bool? Mandatory { get; set; }
 }
 
+public sealed class UpsertPerformanceCycleRequest
+{
+    [Required, StringLength(200)] public string Name { get; init; } = string.Empty;
+    [Required] public DateOnly StartDate { get; init; }
+    [Required] public DateOnly EndDate { get; init; }
+    public DateOnly? SelfAssessmentDueDate { get; init; }
+    public PerformanceCycleStatus Status { get; init; } = PerformanceCycleStatus.Upcoming;
+}
+
+public sealed record PerformanceCycleAdminDto(
+    Guid Id,
+    string Name,
+    DateOnly StartDate,
+    DateOnly EndDate,
+    PerformanceCycleStatus Status,
+    DateOnly? SelfAssessmentDueDate,
+    int Employees,
+    int SubmittedAssessments);
+
+public sealed class UpsertTrainingCourseRequest
+{
+    [Required, StringLength(200)] public string Title { get; init; } = string.Empty;
+    [StringLength(1000)] public string? Description { get; init; }
+    [StringLength(100)] public string? Category { get; init; }
+    [Range(typeof(decimal), "0", "10000")] public decimal DurationHours { get; init; }
+    public bool Mandatory { get; init; }
+    public DateOnly? DueDate { get; init; }
+    public bool IsActive { get; init; } = true;
+}
+
+public sealed record TrainingCourseAdminDto(
+    Guid Id,
+    string Title,
+    string? Description,
+    string? Category,
+    decimal DurationHours,
+    bool Mandatory,
+    DateOnly? DueDate,
+    bool IsActive,
+    int Enrolled,
+    int Completed);
+
 // ------------------------------------------------------------------ responses
 
 public sealed class CurrentCycleResult

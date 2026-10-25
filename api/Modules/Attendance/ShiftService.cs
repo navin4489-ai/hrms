@@ -8,6 +8,7 @@ using Wintech.Hrms.Api.Data;
 using Wintech.Hrms.Api.Domain.Approvals;
 using Wintech.Hrms.Api.Domain.Attendance;
 using Wintech.Hrms.Api.Security;
+using Wintech.Hrms.Api.Security.Auth;
 
 namespace Wintech.Hrms.Api.Modules.Attendance;
 
@@ -44,6 +45,79 @@ public sealed class ShiftService : IShiftService
             s.Id, s.Name, s.StartTime, s.EndTime, s.GraceMinutes, s.BreakMinutes,
             s.WeekDays.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))).ToList();
     }
+
+    public async Task<IReadOnlyList<AdminShiftDto>> GetAdminShiftsAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureShiftAdmin();
+        var shifts = await _db.Set<WorkShift>().AsNoTracking()
+            .OrderBy(s => s.StartTime).ThenBy(s => s.Code)
+            .ToListAsync(cancellationToken);
+        return shifts.Select(MapAdminShift).ToList();
+    }
+
+    public async Task<AdminShiftDto> UpsertShiftAsync(Guid? id, UpsertShiftRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureShiftAdmin();
+        var code = request.Code.Trim();
+        if (await _db.Set<WorkShift>().AnyAsync(shift => shift.Id != (id ?? Guid.Empty) &&
+                shift.Code.ToLower() == code.ToLower(), cancellationToken))
+            throw new ConflictException($"Shift code '{code}' is already in use.");
+        if (request.EndTime == request.StartTime)
+            throw new RequestValidationException("The shift times are invalid.",
+                new() { ["endTime"] = ["A shift must have a non-zero duration; overnight shifts are supported."] });
+        var validDays = new HashSet<string>(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], StringComparer.OrdinalIgnoreCase);
+        var days = request.WeekDays.Select(day => day.Trim()).Where(day => day.Length > 0).ToList();
+        if (days.Count == 0 || days.Any(day => !validDays.Contains(day)))
+            throw new RequestValidationException("Shift weekdays are invalid.",
+                new() { ["weekDays"] = ["Select one or more weekdays using Mon, Tue, Wed, Thu, Fri, Sat or Sun."] });
+
+        var shift = id.HasValue
+            ? await _db.Set<WorkShift>().FirstOrDefaultAsync(item => item.Id == id.Value, cancellationToken)
+                ?? throw new NotFoundException("Shift not found.")
+            : new WorkShift { Id = Guid.NewGuid() };
+        var old = id.HasValue ? new { shift.Code, shift.Name, shift.IsActive, shift.IsDefault } : null;
+        if (request.IsDefault)
+        {
+            var otherDefaults = await _db.Set<WorkShift>()
+                .Where(item => item.Id != shift.Id && item.IsDefault)
+                .ToListAsync(cancellationToken);
+            foreach (var other in otherDefaults) other.IsDefault = false;
+        }
+        shift.Code = code;
+        shift.Name = request.Name.Trim();
+        shift.StartTime = request.StartTime;
+        shift.EndTime = request.EndTime;
+        shift.GraceMinutes = request.GraceMinutes;
+        shift.BreakMinutes = request.BreakMinutes;
+        shift.WeekDays = string.Join(',', days.Select(day => char.ToUpperInvariant(day[0]) + day[1..].ToLowerInvariant()).Distinct());
+        shift.IsDefault = request.IsDefault;
+        shift.IsActive = request.IsActive;
+        if (!id.HasValue) _db.Add(shift);
+        _audit.Add(id.HasValue ? "shift.update" : "shift.create", nameof(WorkShift), shift.Id.ToString(),
+            details: new { old, current = new { shift.Code, shift.Name, shift.StartTime, shift.EndTime, shift.WeekDays, shift.IsDefault, shift.IsActive } });
+        await _db.SaveChangesAsync(cancellationToken);
+        return MapAdminShift(shift);
+    }
+
+    private void EnsureShiftAdmin()
+    {
+        _currentUser.EnsureActive();
+        if (!_currentUser.HasPermission(Permissions.AdminConfig))
+            throw new ForbiddenException("You do not have permission to configure shifts.");
+    }
+
+    private static AdminShiftDto MapAdminShift(WorkShift shift) => new(
+        shift.Id,
+        shift.Code,
+        shift.Name,
+        shift.StartTime,
+        shift.EndTime,
+        shift.GraceMinutes,
+        shift.BreakMinutes,
+        shift.WeekDays.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+        shift.IsDefault,
+        shift.IsActive);
 
     public async Task<IReadOnlyList<RosterEntryDto>> GetRosterAsync(DateOnly? from, DateOnly? to,
         CancellationToken cancellationToken = default)
@@ -196,27 +270,100 @@ public sealed class HolidayService : IHolidayService
     private readonly AppDbContext _db;
     private readonly ICurrentUser _currentUser;
     private readonly Common.Time.IClock _clock;
+    private readonly Common.Auditing.IAuditService _audit;
 
-    public HolidayService(AppDbContext db, ICurrentUser currentUser, Common.Time.IClock clock)
+    public HolidayService(AppDbContext db, ICurrentUser currentUser, Common.Time.IClock clock,
+        Common.Auditing.IAuditService audit)
     {
         _db = db;
         _currentUser = currentUser;
         _clock = clock;
+        _audit = audit;
     }
 
-    public async Task<IReadOnlyList<HolidayDto>> GetHolidaysAsync(int? year, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<HolidayDto>> GetHolidaysAsync(int? year, Guid? locationId = null,
+        CancellationToken cancellationToken = default)
     {
         var targetYear = year ?? AttendanceTimeHelper.DateLocal(_clock.UtcNow).Year;
-        var locationId = await CurrentLocationIdAsync(cancellationToken);
+        if (_currentUser.HasPermission(Permissions.AdminConfig))
+        {
+            if (locationId.HasValue && !await _db.Locations.AnyAsync(location =>
+                    location.Id == locationId.Value, cancellationToken))
+                throw new Common.ErrorHandling.RequestValidationException("The selected location does not exist.",
+                    new() { ["locationId"] = ["Choose an existing location or leave blank for all locations."] });
+        }
+        else
+        {
+            // A normal employee cannot query holidays scoped to another location.
+            locationId = await CurrentLocationIdAsync(cancellationToken);
+        }
         var from = new DateOnly(targetYear, 1, 1);
         var to = new DateOnly(targetYear, 12, 31);
 
         var query = _db.Set<CompanyHoliday>().AsNoTracking()
-            .Where(h => h.Date >= from && h.Date <= to
-                        && (h.LocationId == null || h.LocationId == locationId));
+            .Where(h => h.Date >= from && h.Date <= to);
+        if (locationId.HasValue)
+            query = query.Where(h => h.LocationId == null || h.LocationId == locationId);
+        else if (!_currentUser.HasPermission(Permissions.AdminConfig))
+            query = query.Where(h => h.LocationId == null);
 
         var holidays = await query.OrderBy(h => h.Date).ToListAsync(cancellationToken);
-        return holidays.Select(h => new HolidayDto(h.Date, h.Name, h.Type, h.LocationId)).ToList();
+        return holidays.Select(h => new HolidayDto(h.Id, h.Date, h.Name, h.Type, h.LocationId)).ToList();
+    }
+
+    public async Task<HolidayDto> CreateHolidayAsync(UpsertHolidayRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.LocationId is { } locationId &&
+            !await _db.Locations.AnyAsync(location => location.Id == locationId, cancellationToken))
+            throw new Common.ErrorHandling.RequestValidationException("The selected location does not exist.",
+                new() { ["locationId"] = ["Choose an existing location or leave blank for all locations."] });
+        if (await _db.Set<CompanyHoliday>().AnyAsync(holiday => holiday.Date == request.Date &&
+                holiday.LocationId == request.LocationId, cancellationToken))
+            throw new Common.ErrorHandling.ConflictException("A holiday already exists for this date and location.");
+
+        var holiday = new CompanyHoliday
+        {
+            Id = Guid.NewGuid(),
+            Date = request.Date,
+            Name = request.Name.Trim(),
+            Type = request.Type,
+            LocationId = request.LocationId
+        };
+        _db.Add(holiday);
+        _audit.Add("holiday.create", nameof(CompanyHoliday), holiday.Id.ToString(), details: new
+        {
+            holiday.Date, holiday.Name, holiday.Type, holiday.LocationId
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return new HolidayDto(holiday.Id, holiday.Date, holiday.Name, holiday.Type, holiday.LocationId);
+    }
+
+    public async Task<HolidayDto> UpdateHolidayAsync(Guid id, UpsertHolidayRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var holiday = await _db.Set<CompanyHoliday>().FirstOrDefaultAsync(item => item.Id == id, cancellationToken)
+            ?? throw new Common.ErrorHandling.NotFoundException("Holiday not found.");
+        if (request.LocationId is { } locationId &&
+            !await _db.Locations.AnyAsync(location => location.Id == locationId, cancellationToken))
+            throw new Common.ErrorHandling.RequestValidationException("The selected location does not exist.",
+                new() { ["locationId"] = ["Choose an existing location or leave blank for all locations."] });
+        if (await _db.Set<CompanyHoliday>().AnyAsync(item => item.Id != id &&
+                item.Date == request.Date && item.LocationId == request.LocationId, cancellationToken))
+            throw new Common.ErrorHandling.ConflictException("A holiday already exists for this date and location.");
+
+        var old = new { holiday.Date, holiday.Name, holiday.Type, holiday.LocationId };
+        holiday.Date = request.Date;
+        holiday.Name = request.Name.Trim();
+        holiday.Type = request.Type;
+        holiday.LocationId = request.LocationId;
+        _audit.Add("holiday.update", nameof(CompanyHoliday), id.ToString(), details: new
+        {
+            old,
+            current = new { holiday.Date, holiday.Name, holiday.Type, holiday.LocationId }
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return new HolidayDto(holiday.Id, holiday.Date, holiday.Name, holiday.Type, holiday.LocationId);
     }
 
     private async Task<Guid?> CurrentLocationIdAsync(CancellationToken cancellationToken)

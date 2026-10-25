@@ -84,6 +84,31 @@ public sealed record ShiftDto(
     int BreakMinutes,
     IReadOnlyList<string> WeekDays);
 
+public sealed record AdminShiftDto(
+    Guid Id,
+    string Code,
+    string Name,
+    [property: JsonConverter(typeof(HhMmTimeOnlyConverter))] TimeOnly StartTime,
+    [property: JsonConverter(typeof(HhMmTimeOnlyConverter))] TimeOnly EndTime,
+    int GraceMinutes,
+    int BreakMinutes,
+    IReadOnlyList<string> WeekDays,
+    bool IsDefault,
+    bool IsActive);
+
+public sealed class UpsertShiftRequest
+{
+    [Required, StringLength(50)] public string Code { get; init; } = string.Empty;
+    [Required, StringLength(200)] public string Name { get; init; } = string.Empty;
+    [Required] public TimeOnly StartTime { get; init; }
+    [Required] public TimeOnly EndTime { get; init; }
+    [Range(0, 180)] public int GraceMinutes { get; init; }
+    [Range(0, 600)] public int BreakMinutes { get; init; }
+    [MinLength(1)] public List<string> WeekDays { get; init; } = [];
+    public bool IsDefault { get; init; }
+    public bool IsActive { get; init; } = true;
+}
+
 public sealed record RosterEntryDto(
     DateOnly Date,
     Guid ShiftId,
@@ -170,7 +195,21 @@ public sealed record AttendanceCorrectionDetail(
 
 // ------------------------------------------------------------------ holidays
 
-public sealed record HolidayDto(DateOnly Date, string Name, HolidayKind Type, Guid? LocationId);
+public sealed record HolidayDto(Guid Id, DateOnly Date, string Name, HolidayKind Type, Guid? LocationId);
+
+public sealed class UpsertHolidayRequest
+{
+    [Required]
+    public DateOnly Date { get; init; }
+
+    [Required, StringLength(200)]
+    public string Name { get; init; } = string.Empty;
+
+    [Required]
+    public HolidayKind Type { get; init; }
+
+    public Guid? LocationId { get; init; }
+}
 
 // ------------------------------------------------------------------ dashboard slice
 

@@ -6,6 +6,7 @@ using Wintech.Hrms.Api.Common.Registration;
 using Wintech.Hrms.Api.Common.Time;
 using Wintech.Hrms.Api.Data;
 using Wintech.Hrms.Api.Domain.Payroll;
+using Wintech.Hrms.Api.Domain.Employees;
 using Wintech.Hrms.Api.Security;
 
 namespace Wintech.Hrms.Api.Modules.Payroll;
@@ -22,6 +23,14 @@ public interface IPayrollService : IAppService
     Task<PdfDownload> GeneratePayslipPdfAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PayrollPeriodDto>> GetPeriodsAsync(CancellationToken cancellationToken = default);
     Task<PayrollPeriodDto> SetPeriodStateAsync(Guid id, PayrollPeriodStatus target, string reason, CancellationToken cancellationToken = default);
+    Task<PayrollImportPreviewResult> PreviewPayslipImportAsync(Guid periodId, PayrollPayslipImportRequest request,
+        CancellationToken cancellationToken = default);
+    Task<int> ImportPayslipsAsync(Guid periodId, PayrollPayslipImportRequest request,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PayrollAdminPayslipRow>> GetAdminPayslipsAsync(Guid periodId,
+        CancellationToken cancellationToken = default);
+    Task<PayrollPublishResult> PublishPayslipsAsync(Guid periodId, string reason,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class PayrollService : IPayrollService
@@ -37,6 +46,189 @@ public sealed class PayrollService : IPayrollService
         _currentUser = currentUser;
         _audit = audit;
         _clock = clock;
+    }
+
+    public async Task<PayrollImportPreviewResult> PreviewPayslipImportAsync(Guid periodId,
+        PayrollPayslipImportRequest request, CancellationToken cancellationToken = default)
+    {
+        EnsurePayrollManage();
+        var period = await _db.Set<PayrollPeriod>().AsNoTracking()
+            .FirstOrDefaultAsync(item => item.Id == periodId, cancellationToken)
+            ?? throw new NotFoundException("Payroll period not found.");
+        return await ValidatePayslipImportAsync(period, request, cancellationToken);
+    }
+
+    public async Task<int> ImportPayslipsAsync(Guid periodId, PayrollPayslipImportRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        EnsurePayrollManage();
+        var period = await _db.Set<PayrollPeriod>()
+            .FirstOrDefaultAsync(item => item.Id == periodId, cancellationToken)
+            ?? throw new NotFoundException("Payroll period not found.");
+        EnsurePeriodOpen(period);
+        var preview = await ValidatePayslipImportAsync(period, request, cancellationToken);
+        if (preview.ValidRows != preview.TotalRows)
+            throw new RequestValidationException("The payroll import contains invalid rows.",
+                new() { ["rows"] = preview.Rows.Where(row => !row.Valid)
+                    .Select(row => $"Row {row.Row} ({row.EmployeeNumber}): {string.Join("; ", row.Errors)}").ToArray() });
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        var employees = await _db.Employees
+            .Where(employee => request.Rows.Select(row => row.EmployeeNumber.Trim()).Contains(employee.EmployeeNumber))
+            .ToDictionaryAsync(employee => employee.EmployeeNumber, cancellationToken);
+        foreach (var row in request.Rows)
+        {
+            var employee = employees[row.EmployeeNumber.Trim()];
+            var payslip = new Payslip
+            {
+                Id = Guid.NewGuid(),
+                PeriodId = period.Id,
+                EmployeeId = employee.Id,
+                StartDate = period.StartDate,
+                EndDate = period.EndDate,
+                Gross = row.Gross,
+                TotalDeductions = row.TotalDeductions,
+                NetPay = row.NetPay,
+                Currency = row.Currency.Trim().ToUpperInvariant(),
+                Status = PayslipStatus.Draft,
+                GeneratedAt = _clock.UtcNow,
+                Components = row.Components.Select(component => new PayslipComponent
+                {
+                    Id = Guid.NewGuid(),
+                    Component = component.Component.Trim(),
+                    Amount = component.Amount,
+                    Kind = component.Kind!.Value
+                }).ToList()
+            };
+            _db.Add(payslip);
+        }
+        _audit.Add("payroll.payslips.import", nameof(PayrollPeriod), period.Id.ToString(), details: new
+        {
+            period.Label,
+            importedCount = request.Rows.Count,
+            employeeNumbers = request.Rows.Select(row => row.EmployeeNumber.Trim()).ToArray()
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return request.Rows.Count;
+    }
+
+    public async Task<IReadOnlyList<PayrollAdminPayslipRow>> GetAdminPayslipsAsync(Guid periodId,
+        CancellationToken cancellationToken = default)
+    {
+        EnsurePayrollManage();
+        if (!await _db.Set<PayrollPeriod>().AnyAsync(period => period.Id == periodId, cancellationToken))
+            throw new NotFoundException("Payroll period not found.");
+        return await _db.Set<Payslip>().AsNoTracking()
+            .Where(payslip => payslip.PeriodId == periodId)
+            .OrderBy(payslip => payslip.Employee!.EmployeeNumber)
+            .Select(payslip => new PayrollAdminPayslipRow(
+                payslip.Id,
+                payslip.Employee!.EmployeeNumber,
+                payslip.Employee.DisplayName,
+                payslip.Gross,
+                payslip.TotalDeductions,
+                payslip.NetPay,
+                payslip.Currency,
+                payslip.Status.ToString(),
+                payslip.GeneratedAt,
+                payslip.PublishedAt))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<PayrollPublishResult> PublishPayslipsAsync(Guid periodId, string reason,
+        CancellationToken cancellationToken = default)
+    {
+        _currentUser.EnsureActive();
+        if (!_currentUser.HasPermission(Permissions.PayrollPublish))
+            throw new ForbiddenException("You do not have permission to publish payslips.");
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new RequestValidationException("A publication reason is required.",
+                new() { ["reason"] = ["Provide a reason for publishing this payroll output."] });
+        var period = await _db.Set<PayrollPeriod>().FirstOrDefaultAsync(item => item.Id == periodId, cancellationToken)
+            ?? throw new NotFoundException("Payroll period not found.");
+        EnsurePeriodOpen(period);
+        var drafts = await _db.Set<Payslip>()
+            .Where(payslip => payslip.PeriodId == periodId && payslip.Status == PayslipStatus.Draft)
+            .ToListAsync(cancellationToken);
+        if (drafts.Count == 0)
+            throw new ConflictException("There are no draft payslips to publish.");
+        var publishedAt = _clock.UtcNow;
+        foreach (var payslip in drafts)
+        {
+            payslip.Status = PayslipStatus.Published;
+            payslip.PublishedAt = publishedAt;
+        }
+        _audit.Add("payroll.payslips.publish", nameof(PayrollPeriod), period.Id.ToString(), details: new
+        {
+            period.Label,
+            count = drafts.Count,
+            reason = reason.Trim()
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return new PayrollPublishResult(period.Id, drafts.Count, publishedAt);
+    }
+
+    private async Task<PayrollImportPreviewResult> ValidatePayslipImportAsync(PayrollPeriod period,
+        PayrollPayslipImportRequest request, CancellationToken cancellationToken)
+    {
+        EnsurePeriodOpen(period);
+        if (request.Rows.Count is < 1 or > 1000)
+            throw new RequestValidationException("A payroll import must contain between 1 and 1000 rows.",
+                new() { ["rows"] = ["Choose a payroll file with 1–1000 rows."] });
+        var numbers = request.Rows.Select(row => row.EmployeeNumber.Trim()).Where(number => number.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var employees = await _db.Employees.AsNoTracking()
+            .Where(employee => numbers.Contains(employee.EmployeeNumber))
+            .Select(employee => new { employee.Id, employee.EmployeeNumber, employee.EmploymentStatus })
+            .ToListAsync(cancellationToken);
+        var employeeByNumber = employees.ToDictionary(employee => employee.EmployeeNumber,
+            StringComparer.OrdinalIgnoreCase);
+        var existing = await _db.Set<Payslip>().AsNoTracking()
+            .Where(payslip => payslip.PeriodId == period.Id)
+            .Select(payslip => payslip.Employee!.EmployeeNumber)
+            .ToListAsync(cancellationToken);
+        var existingNumbers = existing.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var results = new List<PayrollImportRowResult>(request.Rows.Count);
+        for (var index = 0; index < request.Rows.Count; index++)
+        {
+            var row = request.Rows[index];
+            var number = row.EmployeeNumber.Trim();
+            var errors = new List<string>();
+            if (number.Length == 0) errors.Add("Employee number is required.");
+            if (!employeeByNumber.TryGetValue(number, out var employee))
+                errors.Add("Employee number was not found.");
+            else if (employee.EmploymentStatus is not (EmploymentStatus.Active or EmploymentStatus.Probation))
+                errors.Add("Payroll output can only be imported for active employees.");
+            if (!seen.Add(number)) errors.Add("Employee appears more than once in this import.");
+            if (existingNumbers.Contains(number)) errors.Add("A payslip already exists for this employee and period.");
+            if (row.Gross < 0 || row.TotalDeductions < 0 || row.NetPay < 0)
+                errors.Add("Gross, deductions and net pay must be non-negative.");
+            if (Math.Round(row.Gross - row.TotalDeductions, 2) != Math.Round(row.NetPay, 2))
+                errors.Add("Net pay must equal gross less deductions.");
+            if (row.Currency.Trim().Length != 3)
+                errors.Add("Currency must be a three-letter ISO code.");
+            if (row.Components.Count > 100 || row.Components.Any(component =>
+                    string.IsNullOrWhiteSpace(component.Component) || component.Amount < 0 || component.Kind is null))
+                errors.Add("Payslip components must have a name, non-negative amount and earning/deduction kind.");
+            results.Add(new PayrollImportRowResult(index + 1, number, errors.Count == 0, errors));
+        }
+        return new PayrollImportPreviewResult(period.Id, period.Label, results.Count,
+            results.Count(result => result.Valid), results);
+    }
+
+    private void EnsurePayrollManage()
+    {
+        _currentUser.EnsureActive();
+        if (!_currentUser.HasPermission(Permissions.PayrollManage))
+            throw new ForbiddenException("You do not have permission to manage payroll inputs.");
+    }
+
+    private static void EnsurePeriodOpen(PayrollPeriod period)
+    {
+        if (period.Status != PayrollPeriodStatus.Open)
+            throw new ConflictException("Payroll input can only be changed while the period is open.");
     }
 
     public async Task<IReadOnlyList<PayslipListItem>> GetPayslipsAsync(int? year, Guid? employeeId, CancellationToken cancellationToken = default)

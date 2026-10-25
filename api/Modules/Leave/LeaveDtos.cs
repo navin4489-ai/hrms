@@ -41,6 +41,60 @@ public sealed record LeavePolicyDto(
     int NoticeDays,
     bool AttachmentRequired);
 
+public sealed record AdminLeaveTypeDto(
+    Guid Id,
+    string Code,
+    string Name,
+    bool IsPaid,
+    bool RequiresAttachment,
+    bool AllowsHalfDay,
+    int? MaxConsecutiveDays,
+    string Unit,
+    int DisplayOrder,
+    bool IsActive);
+
+public sealed record AdminLeavePolicyDto(
+    Guid Id,
+    string Code,
+    string Name,
+    string? Description,
+    Guid? LeaveTypeId,
+    string AccrualFrequency,
+    decimal AnnualEntitlementDays,
+    decimal CarryForwardMaxDays,
+    bool NegativeBalanceAllowed,
+    int NoticeDays,
+    bool AttachmentRequired,
+    bool IsActive);
+
+public sealed class UpsertLeaveTypeRequest
+{
+    [Required, StringLength(50)] public string Code { get; init; } = string.Empty;
+    [Required, StringLength(100)] public string Name { get; init; } = string.Empty;
+    public bool IsPaid { get; init; } = true;
+    public bool RequiresAttachment { get; init; }
+    public bool AllowsHalfDay { get; init; }
+    [Range(1, 365)] public int? MaxConsecutiveDays { get; init; }
+    [Required, StringLength(20)] public string Unit { get; init; } = "Days";
+    public int DisplayOrder { get; init; }
+    public bool IsActive { get; init; } = true;
+}
+
+public sealed class UpsertLeavePolicyRequest
+{
+    [Required, StringLength(50)] public string Code { get; init; } = string.Empty;
+    [Required, StringLength(100)] public string Name { get; init; } = string.Empty;
+    [StringLength(500)] public string? Description { get; init; }
+    public Guid? LeaveTypeId { get; init; }
+    [Required] public string AccrualFrequency { get; init; } = "Monthly";
+    [Range(typeof(decimal), "0", "365")] public decimal AnnualEntitlementDays { get; init; }
+    [Range(typeof(decimal), "0", "365")] public decimal CarryForwardMaxDays { get; init; }
+    public bool NegativeBalanceAllowed { get; init; }
+    [Range(0, 365)] public int NoticeDays { get; init; }
+    public bool AttachmentRequired { get; init; }
+    public bool IsActive { get; init; } = true;
+}
+
 // ------------------------------------------------------------------ requests
 
 public sealed class LeaveRequestCreateDto

@@ -12,6 +12,14 @@ public interface ILeaveService : IAppService
 
     Task<IReadOnlyList<LeavePolicyDto>> GetPoliciesAsync(CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<AdminLeaveTypeDto>> GetAdminLeaveTypesAsync(CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<AdminLeavePolicyDto>> GetAdminLeavePoliciesAsync(CancellationToken cancellationToken = default);
+
+    Task<AdminLeaveTypeDto> UpsertLeaveTypeAsync(Guid? id, UpsertLeaveTypeRequest request, CancellationToken cancellationToken = default);
+
+    Task<AdminLeavePolicyDto> UpsertLeavePolicyAsync(Guid? id, UpsertLeavePolicyRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>Submit a leave request; validated against balance/window/attachment rules (FR-EMP-041/042).</summary>
     Task<LeaveRequestCreatedDto> CreateRequestAsync(LeaveRequestCreateDto request, CancellationToken cancellationToken = default);
 

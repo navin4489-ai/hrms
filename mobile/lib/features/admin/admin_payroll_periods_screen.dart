@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/strings.dart';
 import '../../providers/admin_provider.dart';
@@ -112,6 +113,14 @@ class AdminPayrollPeriodsScreen extends ConsumerWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       StatusChip(status: period.status, dense: true),
+                      if (period.status == 'Open')
+                        IconButton(
+                          tooltip: 'Import payroll output',
+                          onPressed: () => context.push(
+                            '/more/admin/payroll-periods/${period.id}/import?label=${Uri.encodeQueryComponent(period.label)}',
+                          ),
+                          icon: const Icon(Icons.upload_file_outlined),
+                        ),
                       if (canChange)
                         IconButton(
                           tooltip: period.status == 'Open'

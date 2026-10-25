@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Wintech.Hrms.Api.Domain.Employees;
+using Wintech.Hrms.Api.Domain.Organization;
 
 namespace Wintech.Hrms.Api.Modules.Employees;
 
@@ -126,6 +127,9 @@ public sealed class OrgUnitDto
     /// <summary>Entity | BusinessUnit | Department | Team.</summary>
     public string Type { get; init; } = string.Empty;
     public Guid? ParentId { get; init; }
+    public Guid? ManagerId { get; init; }
+    public DateOnly? EffectiveFrom { get; init; }
+    public DateOnly? EffectiveTo { get; init; }
     public string? ManagerName { get; init; }
     public string Status { get; init; } = string.Empty;
 }
@@ -148,4 +152,58 @@ public sealed class DesignationDto
     public string Name { get; init; } = string.Empty;
     public string? Grade { get; init; }
     public string Status { get; init; } = string.Empty;
+}
+
+/// <summary>Admin reference-data create/update payload. Set status to Inactive instead of deleting used data.</summary>
+public sealed class UpsertOrgUnitRequest
+{
+    [Required, StringLength(50)]
+    public string Code { get; init; } = string.Empty;
+
+    [Required, StringLength(200)]
+    public string Name { get; init; } = string.Empty;
+
+    /// <summary>Entity (alias for LegalEntity), BusinessUnit, Department or Team.</summary>
+    [Required]
+    public string Type { get; init; } = string.Empty;
+
+    public Guid? ParentId { get; init; }
+    public Guid? ManagerId { get; init; }
+    public DateOnly? EffectiveFrom { get; init; }
+    public DateOnly? EffectiveTo { get; init; }
+    public ReferenceStatus Status { get; init; } = ReferenceStatus.Active;
+}
+
+public sealed class UpsertLocationRequest
+{
+    [Required, StringLength(50)]
+    public string Code { get; init; } = string.Empty;
+
+    [Required, StringLength(200)]
+    public string Name { get; init; } = string.Empty;
+
+    [Required, StringLength(100)]
+    public string City { get; init; } = string.Empty;
+
+    [StringLength(2)]
+    public string Country { get; init; } = "IN";
+
+    [StringLength(100)]
+    public string TimeZone { get; init; } = "Asia/Kolkata";
+
+    public ReferenceStatus Status { get; init; } = ReferenceStatus.Active;
+}
+
+public sealed class UpsertDesignationRequest
+{
+    [Required, StringLength(50)]
+    public string Code { get; init; } = string.Empty;
+
+    [Required, StringLength(200)]
+    public string Name { get; init; } = string.Empty;
+
+    [StringLength(50)]
+    public string? Grade { get; init; }
+
+    public ReferenceStatus Status { get; init; } = ReferenceStatus.Active;
 }
