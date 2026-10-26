@@ -82,6 +82,8 @@ public sealed class PunchForm
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public double? AccuracyMeters { get; set; }
+    [StringLength(300)]
+    public string? LocationName { get; set; }
 
     /// <summary>Optional selfie image captured at punch time (stored privately, admin-only).</summary>
     public IFormFile? Photo { get; set; }
@@ -304,5 +306,6 @@ public sealed record AdminPunchEventDto(
     double? Latitude,
     double? Longitude,
     double? AccuracyMeters,
+    string? LocationName,
     bool HasPhoto,
     string Source);

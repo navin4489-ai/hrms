@@ -617,6 +617,7 @@ class _CaptureLog extends ConsumerWidget {
             final hasPhoto = e['hasPhoto'] == true;
             final lat = e['latitude'];
             final lon = e['longitude'];
+            final locationName = e['locationName']?.toString();
             return Card(
               child: ListTile(
                 leading: CircleAvatar(
@@ -634,7 +635,7 @@ class _CaptureLog extends ConsumerWidget {
                     '${e['employeeNumber'] ?? ''} · ${e['workDate'] ?? ''} ${e['localTime'] ?? ''}',
                     if (e['department'] != null) e['department'].toString(),
                     if (lat != null && lon != null)
-                      'Location: $lat, $lon'
+                      'Location: ${locationName?.isNotEmpty == true ? '$locationName · ' : ''}$lat, $lon'
                     else
                       'Location: not captured',
                   ].join('\n'),

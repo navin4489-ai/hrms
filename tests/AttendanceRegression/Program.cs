@@ -63,6 +63,7 @@ var bytes = new byte[] { 1, 2, 3, 4 };
 PunchForm Form() => new()
 {
     Source = "Mobile", Latitude = 18.52, Longitude = 73.85, AccuracyMeters = 12,
+    LocationName = "Shivajinagar, Pune, Maharashtra",
     Photo = new FormFile(new MemoryStream(bytes), 0, bytes.Length, "photo", "selfie.jpg")
 };
 
@@ -76,7 +77,8 @@ db.ChangeTracker.Clear();
 var events = await db.Set<AttendancePunchEvent>().OrderBy(e => e.CapturedAtUtc).ToListAsync();
 Assert(events.Count == 2 && events[0].Direction == PunchDirection.CheckIn && events[1].Direction == PunchDirection.CheckOut,
     "both punch directions stored");
-Assert(events.All(e => e.Latitude == 18.52 && e.PhotoStorageKey is not null), "selfie and location stored for both punches");
+Assert(events.All(e => e.Latitude == 18.52 && e.LocationName == "Shivajinagar, Pune, Maharashtra" && e.PhotoStorageKey is not null),
+    "selfie, coordinates and reverse-geocoded location stored for both punches");
 var today = await service.GetTodayAsync(null);
 Assert(today.CheckIn is not null && today.CheckOut is not null, "today reflects completed attendance");
 Assert(!today.GetType().GetProperties().Any(p => p.Name is "Latitude" or "PhotoStorageKey"), "employee response excludes capture data");

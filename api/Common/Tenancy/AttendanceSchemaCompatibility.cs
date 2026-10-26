@@ -24,6 +24,7 @@ public static class AttendanceSchemaCompatibility
                     "Latitude" double precision NULL,
                     "Longitude" double precision NULL,
                     "AccuracyMeters" double precision NULL,
+                    "LocationName" character varying(300) NULL,
                     "PhotoStorageKey" character varying(300) NULL,
                     "PhotoContentType" character varying(100) NULL,
                     "Source" integer NOT NULL
@@ -47,6 +48,7 @@ public static class AttendanceSchemaCompatibility
                     "Latitude" REAL NULL,
                     "Longitude" REAL NULL,
                     "AccuracyMeters" REAL NULL,
+                    "LocationName" TEXT NULL,
                     "PhotoStorageKey" TEXT NULL,
                     "PhotoContentType" TEXT NULL,
                     "Source" INTEGER NOT NULL
@@ -71,6 +73,7 @@ public static class AttendanceSchemaCompatibility
                         [Latitude] float NULL,
                         [Longitude] float NULL,
                         [AccuracyMeters] float NULL,
+                        [LocationName] nvarchar(300) NULL,
                         [PhotoStorageKey] nvarchar(300) NULL,
                         [PhotoContentType] nvarchar(100) NULL,
                         [Source] int NOT NULL
@@ -92,6 +95,39 @@ public static class AttendanceSchemaCompatibility
 
         // Do not swallow DDL errors: startup must fail rather than serve a broken punch endpoint.
         await db.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+
+        // Add the display name column to pre-existing capture tables as well.
+        if (provider == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"wintech_hrms\".\"att_punch_events\" ADD COLUMN IF NOT EXISTS \"LocationName\" character varying(300) NULL",
+                cancellationToken);
+        }
+        else if (provider == "Microsoft.EntityFrameworkCore.SqlServer")
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "IF COL_LENGTH(N'dbo.att_punch_events', N'LocationName') IS NULL ALTER TABLE [dbo].[att_punch_events] ADD [LocationName] nvarchar(300) NULL",
+                cancellationToken);
+        }
+        else if (provider == "Microsoft.EntityFrameworkCore.Sqlite")
+        {
+            var connection = db.Database.GetDbConnection();
+            var openedHere = connection.State != System.Data.ConnectionState.Open;
+            if (openedHere) await db.Database.OpenConnectionAsync(cancellationToken);
+            try
+            {
+                await using var command = connection.CreateCommand();
+                command.CommandText = "PRAGMA table_info(\"att_punch_events\")";
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                var found = false;
+                while (await reader.ReadAsync(cancellationToken))
+                    if (string.Equals(reader.GetString(1), "LocationName", StringComparison.OrdinalIgnoreCase)) found = true;
+                await reader.CloseAsync();
+                if (!found)
+                    await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"att_punch_events\" ADD COLUMN \"LocationName\" TEXT NULL", cancellationToken);
+            }
+            finally { if (openedHere) await db.Database.CloseConnectionAsync(); }
+        }
         logger.LogInformation("Verified attendance punch-capture table and indexes.");
     }
 }

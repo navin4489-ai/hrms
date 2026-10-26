@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
@@ -103,11 +104,14 @@ class AttendanceActions {
     this._ref, {
     ImagePicker? imagePicker,
     this.locationCapture,
+    this.locationNameCapture,
   }) : _imagePicker = imagePicker ?? ImagePicker();
 
   final Ref _ref;
   final ImagePicker _imagePicker;
   final Future<Position?> Function()? locationCapture;
+  final Future<String?> Function(double latitude, double longitude)?
+  locationNameCapture;
   ApiClient get _api => _ref.read(apiClientProvider);
 
   /// Best-effort capture of geolocation when enabled; returns null on denial/timeout.
@@ -148,6 +152,46 @@ class AttendanceActions {
     }
   }
 
+  /// Reverse-geocode coordinates to a concise locality label. Best-effort and
+  /// never allowed to block or fail a punch.
+  Future<String?> _locationName(Position? position) async {
+    if (position == null) return null;
+    try {
+      if (locationNameCapture != null) {
+        return await locationNameCapture!(
+          position.latitude,
+          position.longitude,
+        );
+      }
+      final placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      ).timeout(const Duration(seconds: 5));
+      if (placemarks.isEmpty) return null;
+      final p = placemarks.first;
+      final parts = <String?>[
+        p.name,
+        p.subLocality,
+        p.locality,
+        p.administrativeArea,
+        p.country,
+      ].map((s) => s?.trim()).whereType<String>().where((s) => s.isNotEmpty);
+      final unique = <String>[];
+      for (final part in parts) {
+        if (!unique.any(
+          (existing) => existing.toLowerCase() == part.toLowerCase(),
+        )) {
+          unique.add(part);
+        }
+      }
+      if (unique.isEmpty) return null;
+      final label = unique.take(3).join(', ');
+      return label.length <= 300 ? label : label.substring(0, 300);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// `POST /attendance/punch` (multipart). Captures location + selfie per admin
   /// settings; punch still succeeds if the employee denies a permission.
   Future<PunchResult> punch() async {
@@ -167,12 +211,16 @@ class AttendanceActions {
 
     Position? position;
     if (settings.captureLocation) position = await _captureLocation();
+    final locationName = settings.captureLocation
+        ? await _locationName(position)
+        : null;
 
     final form = FormData.fromMap({
       'source': 'Mobile',
       if (position != null) 'latitude': position.latitude,
       if (position != null) 'longitude': position.longitude,
       if (position != null) 'accuracyMeters': position.accuracy,
+      if (locationName != null) 'locationName': locationName,
       if (selfie != null)
         'photo': await MultipartFile.fromFile(
           selfie.path,

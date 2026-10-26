@@ -121,6 +121,7 @@ public sealed class AttendancePunchEventConfiguration : IEntityTypeConfiguration
         builder.HasKey(e => e.Id);
         builder.Property(e => e.PhotoStorageKey).HasMaxLength(300);
         builder.Property(e => e.PhotoContentType).HasMaxLength(100);
+        builder.Property(e => e.LocationName).HasMaxLength(300);
         builder.HasIndex(e => new { e.EmployeeId, e.WorkDate });
         builder.HasIndex(e => e.WorkDate);
         builder.HasIndex(e => e.CapturedAtUtc);

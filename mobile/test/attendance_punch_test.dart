@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:wintech_hrms/core/network/api_client.dart';
 import 'package:wintech_hrms/core/storage/token_storage.dart';
@@ -37,6 +38,7 @@ class _Transport implements HttpClientAdapter {
   int settingsStatus = 200;
   bool photoEnabled = true;
   int punches = 0;
+  final locationNames = <String>[];
 
   @override
   Future<ResponseBody> fetch(
@@ -48,6 +50,12 @@ class _Transport implements HttpClientAdapter {
     events.add(settings ? 'settings' : 'punch');
     if (!settings) {
       expect(options.contentType, contains('multipart/form-data'));
+      final form = options.data as FormData;
+      locationNames.addAll(
+        form.fields
+            .where((field) => field.key == 'locationName')
+            .map((field) => field.value),
+      );
       punches++;
     }
     return ResponseBody.fromString(
@@ -149,4 +157,55 @@ void main() {
     expect(events, isNot(contains('camera')));
     expect(adapter.punches, 2);
   });
+
+  test(
+    'reverse-geocoded locality is submitted with captured coordinates',
+    () async {
+      final events = <String>[];
+      final picker = _Picker(events);
+      final adapter = _Transport(events);
+      final api = ApiClient(
+        tokenStorage: InMemoryTokenStorage(),
+        httpClientAdapter: adapter,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          apiClientProvider.overrideWithValue(api),
+          attendanceActionsProvider.overrideWith(
+            (ref) => AttendanceActions(
+              ref,
+              imagePicker: picker,
+              locationCapture: () async {
+                events.add('location');
+                return Position(
+                  longitude: 73.8567,
+                  latitude: 18.5204,
+                  timestamp: DateTime(2026, 10, 26),
+                  accuracy: 5,
+                  altitude: 0,
+                  altitudeAccuracy: 1,
+                  heading: 0,
+                  headingAccuracy: 1,
+                  speed: 0,
+                  speedAccuracy: 1,
+                );
+              },
+              locationNameCapture: (lat, lon) async {
+                events.add('geocode');
+                expect(lat, closeTo(18.5204, 0.0001));
+                expect(lon, closeTo(73.8567, 0.0001));
+                return 'Shivajinagar, Pune, Maharashtra';
+              },
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(api.close);
+
+      await container.read(attendanceActionsProvider).punch();
+      expect(events, ['settings', 'camera', 'location', 'geocode', 'punch']);
+      expect(adapter.locationNames, ['Shivajinagar, Pune, Maharashtra']);
+    },
+  );
 }

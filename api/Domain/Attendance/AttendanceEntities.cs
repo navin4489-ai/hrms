@@ -206,6 +206,8 @@ public class AttendancePunchEvent
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public double? AccuracyMeters { get; set; }
+    /// <summary>Best-effort reverse-geocoded place label captured by the mobile device.</summary>
+    public string? LocationName { get; set; }
 
     /// <summary>Private-store key for the selfie image; null when no image was provided or capture was photo-off.</summary>
     public string? PhotoStorageKey { get; set; }

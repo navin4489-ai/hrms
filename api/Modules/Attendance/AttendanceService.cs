@@ -243,6 +243,9 @@ public sealed class AttendanceService : IAttendanceService
             punchEvent.Latitude = form.Latitude;
             punchEvent.Longitude = form.Longitude;
             punchEvent.AccuracyMeters = form.AccuracyMeters;
+            punchEvent.LocationName = string.IsNullOrWhiteSpace(form.LocationName)
+                ? null
+                : form.LocationName.Trim()[..Math.Min(form.LocationName.Trim().Length, 300)];
         }
         if (capturePhoto && form.Photo is { Length: > 0 })
         {
@@ -505,26 +508,46 @@ public sealed class AttendanceService : IAttendanceService
             .Select(e => new
             {
                 e.Id,
-                e.DepartmentId,
+                e.LocationId,
                 Department = e.Department != null ? e.Department.Name : "Unassigned"
             })
             .ToListAsync(cancellationToken);
         var employeeIds = employees.Select(e => e.Id).ToHashSet();
         var departmentByEmployee = employees.ToDictionary(e => e.Id, e => e.Department);
 
+        var shifts = await _db.Set<WorkShift>().AsNoTracking()
+            .Where(shift => shift.IsActive)
+            .ToListAsync(cancellationToken);
+        var shiftById = shifts.ToDictionary(shift => shift.Id);
+        var defaultShift = shifts.FirstOrDefault(shift => shift.IsDefault);
+        var defaultWeekDays = (defaultShift?.WeekDays ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var assignments = await _db.Set<ShiftAssignment>().AsNoTracking()
+            .Where(assignment => assignment.Date >= from && assignment.Date <= to &&
+                                 employeeIds.Contains(assignment.EmployeeId))
+            .ToListAsync(cancellationToken);
+        var assignedShifts = assignments
+            .Where(assignment => shiftById.ContainsKey(assignment.ShiftId))
+            .ToDictionary(assignment => (assignment.EmployeeId, assignment.Date),
+                assignment => shiftById[assignment.ShiftId]);
+
+        var locationIds = employees.Select(employee => employee.LocationId).ToHashSet();
+        var holidays = await _db.Set<CompanyHoliday>().AsNoTracking()
+            .Where(holiday => holiday.Date >= from && holiday.Date <= to &&
+                              (holiday.LocationId == null || locationIds.Contains(holiday.LocationId.Value)))
+            .Select(holiday => new { holiday.Date, holiday.LocationId })
+            .ToListAsync(cancellationToken);
+        var holidayByDateAndLocation = holidays
+            .Select(holiday => (holiday.Date, holiday.LocationId))
+            .ToHashSet();
+
         var records = await _db.Set<AttendanceDayRecord>().AsNoTracking()
             .Where(r => r.WorkDate >= from && r.WorkDate <= to && employeeIds.Contains(r.EmployeeId))
-            .Select(r => new
-            {
-                r.EmployeeId,
-                r.WorkDate,
-                r.Status,
-                r.CheckIn,
-                r.LateByMinutes,
-                r.WorkedHours,
-                r.OvertimeHours
-            })
             .ToListAsync(cancellationToken);
+        var recordsByEmployeeAndDate = records
+            .ToDictionary(record => (record.EmployeeId, record.WorkDate));
 
         var leaveRows = await _db.Set<LeaveRequest>().AsNoTracking()
             .Where(l => l.Status == LeaveRequestStatus.Approved && l.StartDate <= to && l.EndDate >= from
@@ -539,49 +562,96 @@ public sealed class AttendanceService : IAttendanceService
             })
             .ToListAsync(cancellationToken);
 
-        // Per-day aggregation.
+        // Count expected workdays for the whole active population, not just records that
+        // happen to exist. This makes missing punches show as absent instead of disappearing.
         var daily = new List<AdminAttendanceDayPoint>();
         var statusCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         var deptAgg = new Dictionary<string, (int Present, int Absent, int Late)>(StringComparer.Ordinal);
         var leaveDaysByEmployee = BuildLeaveDayLookup(leaveRows.Select(l => (l.EmployeeId, l.StartDate, l.EndDate)), from, to);
+        var today = AttendanceTimeHelper.DateLocal(_clock.UtcNow);
 
         int totalPresent = 0, totalAbsent = 0, totalLate = 0, totalHalf = 0, totalLeave = 0;
         decimal totalWorked = 0, totalOvertime = 0;
 
         for (var date = from; date <= to; date = date.AddDays(1))
         {
-            var dayRecords = records.Where(r => r.WorkDate == date).ToList();
-            var present = dayRecords.Count(r => r.CheckIn != null &&
-                r.Status is AttendanceDayStatus.Present or AttendanceDayStatus.Late or AttendanceDayStatus.HalfDay);
-            var late = dayRecords.Count(r => r.Status == AttendanceDayStatus.Late);
-            var onLeave = leaveDaysByEmployee.Count(kv => kv.Value.Contains(date));
-            var absent = dayRecords.Count(r => r.Status == AttendanceDayStatus.Absent);
+            var present = 0;
+            var absent = 0;
+            var late = 0;
+            var onLeave = 0;
+
+            foreach (var employee in employees)
+            {
+                var isHoliday = holidayByDateAndLocation.Contains((date, (Guid?)null)) ||
+                                holidayByDateAndLocation.Contains((date, (Guid?)employee.LocationId));
+                if (isHoliday) continue;
+
+                var hasAssignedShift = assignedShifts.TryGetValue((employee.Id, date), out _);
+                var isScheduled = hasAssignedShift || defaultWeekDays.Contains(AttendanceTimeHelper.WeekDayName(date));
+                if (!isScheduled) continue;
+
+                var employeePresent = false;
+                var employeeAbsent = false;
+                var employeeLate = false;
+                if (leaveDaysByEmployee.TryGetValue(employee.Id, out var leaveDates) && leaveDates.Contains(date))
+                {
+                    onLeave++;
+                    statusCounts["Leave"] = statusCounts.GetValueOrDefault("Leave") + 1;
+                }
+                else if (recordsByEmployeeAndDate.TryGetValue((employee.Id, date), out var record))
+                {
+                    if (record.CheckIn is not null && record.Status != AttendanceDayStatus.Absent)
+                    {
+                        present++;
+                        employeePresent = true;
+                        if (record.Status == AttendanceDayStatus.Late)
+                        {
+                            late++;
+                            employeeLate = true;
+                        }
+                        if (record.Status == AttendanceDayStatus.HalfDay) totalHalf++;
+                        var status = record.Status.ToString();
+                        statusCounts[status] = statusCounts.GetValueOrDefault(status) + 1;
+                    }
+                    else if (record.Status == AttendanceDayStatus.Absent || date < today)
+                    {
+                        absent++;
+                        employeeAbsent = true;
+                        statusCounts["Absent"] = statusCounts.GetValueOrDefault("Absent") + 1;
+                    }
+                    else
+                    {
+                        var status = record.Status.ToString();
+                        statusCounts[status] = statusCounts.GetValueOrDefault(status) + 1;
+                    }
+                }
+                else if (date < today)
+                {
+                    absent++;
+                    employeeAbsent = true;
+                    statusCounts["Absent"] = statusCounts.GetValueOrDefault("Absent") + 1;
+                }
+
+                var department = departmentByEmployee.GetValueOrDefault(employee.Id, "Unassigned");
+                var current = deptAgg.GetValueOrDefault(department);
+                deptAgg[department] = (
+                    current.Present + (employeePresent ? 1 : 0),
+                    current.Absent + (employeeAbsent ? 1 : 0),
+                    current.Late + (employeeLate ? 1 : 0));
+            }
+
             daily.Add(new AdminAttendanceDayPoint(date, present, absent, late, onLeave));
+            totalPresent += present;
+            totalAbsent += absent;
+            totalLate += late;
+            totalLeave += onLeave;
         }
 
         foreach (var record in records)
         {
-            var key = record.Status.ToString();
-            statusCounts[key] = statusCounts.GetValueOrDefault(key) + 1;
-
-            var department = departmentByEmployee.GetValueOrDefault(record.EmployeeId, "Unassigned");
-            var current = deptAgg.GetValueOrDefault(department);
-            var isPresent = record.CheckIn != null &&
-                record.Status is AttendanceDayStatus.Present or AttendanceDayStatus.Late or AttendanceDayStatus.HalfDay;
-            deptAgg[department] = (
-                current.Present + (isPresent ? 1 : 0),
-                current.Absent + (record.Status == AttendanceDayStatus.Absent ? 1 : 0),
-                current.Late + (record.Status == AttendanceDayStatus.Late ? 1 : 0));
-
-            if (isPresent) totalPresent++;
-            if (record.Status == AttendanceDayStatus.Absent) totalAbsent++;
-            if (record.Status == AttendanceDayStatus.Late) totalLate++;
-            if (record.Status == AttendanceDayStatus.HalfDay) totalHalf++;
             totalWorked += record.WorkedHours ?? 0;
             totalOvertime += record.OvertimeHours;
         }
-
-        totalLeave = leaveDaysByEmployee.Sum(kv => kv.Value.Count);
 
         var leaveByType = leaveRows
             .GroupBy(l => l.LeaveType)
@@ -670,6 +740,7 @@ public sealed class AttendanceService : IAttendanceService
                 e.Latitude,
                 e.Longitude,
                 e.AccuracyMeters,
+                e.LocationName,
                 e.PhotoStorageKey != null,
                 e.Source.ToString()))
             .ToPagedAsync(page, dto => dto, cancellationToken);
