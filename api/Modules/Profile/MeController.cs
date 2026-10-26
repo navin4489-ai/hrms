@@ -11,8 +11,13 @@ namespace Wintech.Hrms.Api.Modules.Profile;
 public sealed class MeController : ControllerBase
 {
     private readonly IProfileService _profile;
+    private readonly Payroll.IPayrollService _payroll;
 
-    public MeController(IProfileService profile) => _profile = profile;
+    public MeController(IProfileService profile, Payroll.IPayrollService payroll)
+    {
+        _profile = profile;
+        _payroll = payroll;
+    }
 
     /// <summary>Personal + work profile of the signed-in employee (FR-EMP-020).</summary>
     [HttpGet]
@@ -20,6 +25,16 @@ public sealed class MeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<EmployeeProfileDto>> GetMe(CancellationToken cancellationToken)
         => Ok(await _profile.GetMeAsync(cancellationToken));
+
+    /// <summary>
+    /// The caller's own pay details (CTC breakup, regime) with the automatically computed
+    /// income tax — read-only self-service; 404 until finance records pay details.
+    /// </summary>
+    [HttpGet("salary")]
+    [ProducesResponseType(typeof(Payroll.AdminSalaryStructureDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<Payroll.AdminSalaryStructureDto>> MySalary(CancellationToken cancellationToken)
+        => Ok(await _payroll.GetMySalaryAsync(cancellationToken));
 
     /// <summary>Submit changes to the permitted non-sensitive fields (FR-EMP-021).</summary>
     [HttpPut("profile")]

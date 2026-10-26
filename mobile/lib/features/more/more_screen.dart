@@ -326,6 +326,12 @@ class MoreScreen extends ConsumerWidget {
                       label: Strings.payslips,
                       onTap: () => context.go('/more/payslips'),
                     ),
+                  if (payrollModuleOn)
+                    _Tile(
+                      icon: Icons.account_balance_wallet_outlined,
+                      label: 'My pay details',
+                      onTap: () => context.go('/more/pay-details'),
+                    ),
                   _Tile(
                     icon: Icons.folder_copy_outlined,
                     label: Strings.documents,

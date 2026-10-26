@@ -58,6 +58,19 @@ per organization). The mobile app hides the tiles when disabled.
 | `POST /api/v1/payroll/salaries/preview-tax` | Tax from unsaved values (nothing persisted) |
 | `POST /api/v1/payroll-periods/{id}/payslips/generate` | Auto-calculate payslips for a period |
 | `POST /api/v1/payroll-periods/{id}/payslips/publish` | Publish drafts (reason required) |
+| `GET /api/v1/me/salary` | Employee's own pay details + computed tax (self-service; no id accepted) |
+
+## Employee visibility
+
+- **Pay details:** every signed-in employee can read *their own* CTC breakup,
+  regime and computed tax via `GET /api/v1/me/salary` (mobile: More →
+  **My pay details**). The endpoint is caller-scoped, so it cannot expose
+  another person's pay; 404 until finance records pay details.
+- **Payslips:** generation creates **Drafts**; employees only ever see
+  **Published** payslips (mobile: Payslips tab). Publish is a separate,
+  audited step gated by `payroll.publish` with a mandatory reason.
+- Re-running generate after adding more salary structures fills in only the
+  missing employees — existing payslips are never duplicated or overwritten.
 
 ## Database
 

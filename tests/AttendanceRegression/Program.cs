@@ -206,6 +206,34 @@ try
 catch (ForbiddenException) { Console.WriteLine("PASS: employee denied pay details"); }
 payrollUser.Admin = true;
 
+// Employee self-service: own pay details only, readable without admin rights,
+// with the tax recomputed from the saved components.
+payrollUser.Admin = false;
+payrollUser.EmployeeId = employee.Id;
+var myPay = await payroll.GetMySalaryAsync();
+Assert(myPay.EmployeeId == employee.Id && myPay.AnnualCtc == 2_000_000m
+       && myPay.Tax.AnnualTax == 192_400m && myPay.Tax.MonthlyTds == 16_033.33m,
+    "employee reads own pay details with the automatic tax");
+
+// Accounts not linked to an employee are refused; linked employees without pay
+// details get 404 rather than an empty/incorrect figure.
+payrollUser.EmployeeId = null;
+try
+{
+    await payroll.GetMySalaryAsync();
+    throw new Exception("Unlinked account read pay details");
+}
+catch (ForbiddenException) { Console.WriteLine("PASS: unlinked account denied own pay details"); }
+payrollUser.EmployeeId = Guid.NewGuid();
+try
+{
+    await payroll.GetMySalaryAsync();
+    throw new Exception("Missing pay details did not 404");
+}
+catch (NotFoundException) { Console.WriteLine("PASS: own pay details 404 before finance records them"); }
+payrollUser.EmployeeId = employee.Id;
+payrollUser.Admin = true;
+
 // Create an October period and generate payslips automatically from the pay details.
 var october = new PayrollPeriod
 {
@@ -259,12 +287,12 @@ sealed class TestClock : IClock
     public DateOnly TodayIn(string timeZoneId) => Today;
 }
 
-sealed class TestUser(Guid employeeId) : ICurrentUser
+sealed class TestUser(Guid? employeeId) : ICurrentUser
 {
     public bool Admin { get; set; }
     public bool IsAuthenticated => true;
     public Guid UserId { get; } = Guid.NewGuid();
-    public Guid? EmployeeId => employeeId;
+    public Guid? EmployeeId { get; set; } = employeeId;
     public string EmployeeNumber => "TEST-EMP001";
     public string DisplayName => "Test Employee";
     public string? WorkEmail => "attendance@example.test";

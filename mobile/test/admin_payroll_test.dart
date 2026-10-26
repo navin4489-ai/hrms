@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wintech_hrms/core/network/api_client.dart';
 import 'package:wintech_hrms/core/storage/token_storage.dart';
+import 'package:wintech_hrms/features/documents/my_pay_details_screen.dart';
 import 'package:wintech_hrms/providers/admin_payroll_provider.dart';
 import 'package:wintech_hrms/providers/api_provider.dart';
 
@@ -56,6 +57,9 @@ class _Transport implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     requests.add(options);
+    if (options.path.endsWith('/me/salary')) {
+      return _json(_salaryJson);
+    }
     if (options.path.endsWith('/payroll/salaries')) {
       return _json([_salaryJson]);
     }
@@ -199,5 +203,26 @@ void main() {
       transport.requests.single.path,
       contains('/payroll-periods/period-1/payslips/generate'),
     );
+  });
+
+  test('my pay details reads own record from /me/salary', () async {
+    final transport = _Transport();
+    final api = ApiClient(
+      tokenStorage: InMemoryTokenStorage(),
+      httpClientAdapter: transport,
+    );
+    final container = ProviderContainer(
+      overrides: [apiClientProvider.overrideWithValue(api)],
+    );
+    addTearDown(container.dispose);
+    addTearDown(api.close);
+
+    final row = await container.read(mySalaryProvider.future);
+    expect(row.employeeNumber, 'EMP001');
+    expect(row.annualCtc, 2000000);
+    expect(row.taxRegime, 'New');
+    expect(row.tax.monthlyTds, 16033.33);
+    // Self-service only ever hits the caller's own endpoint — no id parameter.
+    expect(transport.requests.single.path, endsWith('/me/salary'));
   });
 }

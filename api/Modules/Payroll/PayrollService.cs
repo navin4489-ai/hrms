@@ -43,6 +43,9 @@ public interface IPayrollService : IAppService
     Task<IncomeTaxEstimateDto> PreviewTaxAsync(SaveSalaryStructureRequest request,
         CancellationToken cancellationToken = default);
     Task<PayrollGenerateResult> GeneratePayslipsAsync(Guid periodId, CancellationToken cancellationToken = default);
+
+    /// <summary>The caller's own pay details with the computed tax (self-service;404 when none recorded).</summary>
+    Task<AdminSalaryStructureDto> GetMySalaryAsync(CancellationToken cancellationToken = default);
 }
 
 public sealed class PayrollService : IPayrollService
@@ -341,6 +344,36 @@ public sealed class PayrollService : IPayrollService
         });
         await _db.SaveChangesAsync(cancellationToken);
         return new PayrollGenerateResult(period.Id, period.Label, generated, skipped.Count, skipped);
+    }
+
+    /// <summary>
+    /// Employee self-service: the caller's own pay details and computed tax, scoped to the
+    /// signed-in employee — never accepts an id, so it cannot expose another person's pay.
+    /// </summary>
+    public async Task<AdminSalaryStructureDto> GetMySalaryAsync(CancellationToken cancellationToken = default)
+    {
+        _currentUser.EnsureActive();
+        await EnsurePayrollModuleAsync(cancellationToken);
+        var employeeId = _currentUser.EmployeeId
+            ?? throw new ForbiddenException("Your account is not linked to an employee profile.");
+
+        var employee = await _db.Employees.AsNoTracking()
+            .Where(e => e.Id == employeeId)
+            .Select(e => new
+            {
+                e.Id, e.EmployeeNumber, e.DisplayName,
+                Department = e.Department != null ? e.Department.Name : null
+            })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException("Employee profile not found.");
+
+        var structure = await _db.Set<EmployeeSalaryStructure>().AsNoTracking()
+            .FirstOrDefaultAsync(s => s.EmployeeId == employeeId, cancellationToken)
+            ?? throw new NotFoundException("Pay details have not been recorded for you yet.");
+
+        var fy = IncomeTaxCalculator.FinancialYearOf(_clock.TodayIn("Asia/Kolkata"));
+        return MapStructure(employee.Id, employee.EmployeeNumber, employee.DisplayName,
+            employee.Department, structure, fy);
     }
 
     /// <summary>Builds one draft payslip from an employee's pay details for the given period.</summary>

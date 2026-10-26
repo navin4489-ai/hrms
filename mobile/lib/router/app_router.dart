@@ -44,6 +44,7 @@ import '../features/documents/documents_screen.dart';
 import '../features/documents/letters_screen.dart';
 import '../features/documents/payslip_detail_screen.dart';
 import '../features/documents/payslips_screen.dart';
+import '../features/documents/my_pay_details_screen.dart';
 import '../features/documents/policies_screen.dart';
 import '../features/documents/policy_detail_screen.dart';
 import '../features/expenses/expense_detail_screen.dart';
@@ -408,6 +409,15 @@ final routerProvider = Provider<GoRouter>((ref) {
                         ),
                       ),
                     ],
+                  ),
+                  // Employee self-view of own pay details (CTC + computed tax)
+                  GoRoute(
+                    path: 'pay-details',
+                    builder: (_, __) => const ModuleGate(
+                      moduleKey: 'payroll',
+                      moduleLabel: 'Payroll & payslips',
+                      child: MyPayDetailsScreen(),
+                    ),
                   ),
                   // Documents & policies & letters
                   GoRoute(
