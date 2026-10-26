@@ -299,7 +299,22 @@ public sealed class ChatService : IChatService
         var me = MeEmployeeId;
         var conversation = await LoadMemberConversationAsync(conversationId, me, cancellationToken);
 
-        var stored = await _files.SaveAsync(content, fileName, MaxAttachmentBytes, FileExtensions, cancellationToken);
+        // Validate and copy at most the upload limit before storing durably in
+        // the database. Render's temporary filesystem is lost on redeployment.
+        var safeFileName = Path.GetFileName(fileName.Replace('\\', '/'));
+        var extension = Path.GetExtension(safeFileName).ToLowerInvariant();
+        if (!FileExtensions.Contains(extension))
+            throw new RequestValidationException("File type is not allowed.");
+        await using var buffer = new MemoryStream();
+        var chunk = new byte[81920];
+        int count;
+        while ((count = await content.ReadAsync(chunk, cancellationToken)) > 0)
+        {
+            if (buffer.Length + count > MaxAttachmentBytes)
+                throw new RequestValidationException("Maximum attachment size is 25 MB.");
+            await buffer.WriteAsync(chunk.AsMemory(0, count), cancellationToken);
+        }
+        if (buffer.Length == 0) throw new RequestValidationException("An attachment is required.");
 
         var msgKind = kind switch
         {
@@ -308,18 +323,24 @@ public sealed class ChatService : IChatService
             _ => ChatMessageKind.File
         };
         var message = NewMessage(conversation, me, msgKind, null);
-        message.AttachmentStorageKey = stored.StorageKey;
-        message.AttachmentFileName = stored.OriginalFileName;
-        message.AttachmentContentType = stored.ContentType;
-        message.AttachmentSize = stored.SizeBytes;
+        message.AttachmentStorageKey = $"database/{message.Id}";
+        message.AttachmentFileName = safeFileName;
+        message.AttachmentContentType = AttachmentContentType(extension);
+        message.AttachmentSize = buffer.Length;
         message.DurationSeconds = durationSeconds;
         _db.Add(message);
+        _db.Add(new ChatAttachmentContent
+        {
+            Id = message.Id,
+            OrganizationId = conversation.OrganizationId,
+            Content = buffer.ToArray()
+        });
 
         var preview = msgKind switch
         {
             ChatMessageKind.Image => "📷 Photo",
             ChatMessageKind.VoiceNote => "🎤 Voice note",
-            _ => "📎 " + stored.OriginalFileName
+            _ => "📎 " + safeFileName
         };
         Touch(conversation, preview);
         await _db.SaveChangesAsync(cancellationToken);
@@ -348,8 +369,15 @@ public sealed class ChatService : IChatService
 
         // Caller must be an active member of the conversation.
         var isMember = await _db.Set<ConversationMember>().AsNoTracking()
-            .AnyAsync(m => m.ConversationId == message.ConversationId && m.EmployeeId == me, cancellationToken);
+            .AnyAsync(m => m.ConversationId == message.ConversationId && m.EmployeeId == me && m.LeftAt == null, cancellationToken);
         if (!isMember) throw new ForbiddenException("You are not a member of this conversation.");
+
+        var durable = await _db.Set<ChatAttachmentContent>().AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == message.Id, cancellationToken);
+        if (durable is not null)
+            return new AttachmentDownload(new MemoryStream(durable.Content),
+                message.AttachmentContentType ?? "application/octet-stream",
+                message.AttachmentFileName ?? "attachment");
 
         var file = await _files.OpenReadAsync(message.AttachmentStorageKey, cancellationToken);
         return new AttachmentDownload(file.Content, file.ContentType,
@@ -609,4 +637,20 @@ public sealed class ChatService : IChatService
     }
 
     private static string Preview(string body) => body.Length <= 120 ? body : body[..120];
+
+    private static string AttachmentContentType(string extension) => extension switch
+    {
+        ".jpg" or ".jpeg" => "image/jpeg", ".png" => "image/png",
+        ".gif" => "image/gif", ".webp" => "image/webp", ".heic" => "image/heic",
+        ".pdf" => "application/pdf", ".txt" => "text/plain", ".csv" => "text/csv",
+        ".doc" => "application/msword",
+        ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xls" => "application/vnd.ms-excel",
+        ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".ppt" => "application/vnd.ms-powerpoint",
+        ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".zip" => "application/zip", ".m4a" => "audio/mp4", ".mp3" => "audio/mpeg",
+        ".aac" => "audio/aac", ".ogg" => "audio/ogg", ".wav" => "audio/wav",
+        ".webm" => "audio/webm", _ => "application/octet-stream"
+    };
 }

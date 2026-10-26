@@ -53,6 +53,18 @@ public sealed class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMess
     }
 }
 
+public sealed class ChatAttachmentContentConfiguration : IEntityTypeConfiguration<ChatAttachmentContent>
+{
+    public void Configure(EntityTypeBuilder<ChatAttachmentContent> builder)
+    {
+        builder.ToTable("chat_attachment_content");
+        builder.HasKey(a => a.Id);
+        builder.Property(a => a.Content).IsRequired();
+        builder.HasOne<ChatMessage>().WithOne().HasForeignKey<ChatAttachmentContent>(a => a.Id)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
 public sealed class CallSessionConfiguration : IEntityTypeConfiguration<CallSession>
 {
     public void Configure(EntityTypeBuilder<CallSession> builder)

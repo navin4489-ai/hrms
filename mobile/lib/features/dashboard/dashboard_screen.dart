@@ -36,6 +36,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     try {
       final result = await ref.read(attendanceActionsProvider).punch();
       ref.invalidate(dashboardProvider);
+      ref.invalidate(attendanceTodayProvider);
+      ref.invalidate(attendanceMonthProvider);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

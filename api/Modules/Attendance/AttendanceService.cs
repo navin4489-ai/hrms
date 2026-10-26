@@ -177,6 +177,12 @@ public sealed class AttendanceService : IAttendanceService
             };
             _db.Set<AttendanceDayRecord>().Add(record);
         }
+        else
+        {
+            // BuildCalendarAsync returns no-tracking records. Attach before
+            // changing checkout fields so SaveChanges persists the daily row too.
+            _db.Attach(record);
+        }
 
         record.Source = ParseSource(form.Source);
         record.UpdatedAt = _clock.UtcNow;

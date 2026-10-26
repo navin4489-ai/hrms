@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:open_filex/open_filex.dart';
@@ -117,7 +116,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 
   Future<void> _pickFile() async {
     final result = await FilePicker.pickFiles();
-    final path = result?.isNotEmpty == true ? result!.first.path : null;
+    final path = result.isNotEmpty ? result.first.path : null;
     if (path == null) return;
     await _sendAttachment(path, 'file');
   }
@@ -241,6 +240,7 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                   padding: const EdgeInsets.all(12),
                   itemCount: d.messages.length,
                   itemBuilder: (context, index) => _MessageBubble(
+                    key: ValueKey(d.messages[index].id),
                     message: d.messages[index],
                     showSender: d.isGroup,
                   ),
@@ -302,7 +302,11 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
 }
 
 class _MessageBubble extends ConsumerStatefulWidget {
-  const _MessageBubble({required this.message, this.showSender = false});
+  const _MessageBubble({
+    super.key,
+    required this.message,
+    this.showSender = false,
+  });
 
   final ChatMessage message;
   final bool showSender;
@@ -314,6 +318,7 @@ class _MessageBubble extends ConsumerStatefulWidget {
 class _MessageBubbleState extends ConsumerState<_MessageBubble> {
   bool _busy = false;
   AudioPlayer? _audio;
+  Uint8List? _attachmentBytes;
 
   ChatMessage get message => widget.message;
   bool get showSender => widget.showSender;
@@ -331,28 +336,59 @@ class _MessageBubbleState extends ConsumerState<_MessageBubble> {
   }
 
   /// Download the attachment bytes (auth-gated) and save to a temp file.
+  Future<Uint8List> _downloadBytes() async {
+    if (_attachmentBytes != null) return _attachmentBytes!;
+    final bytes = await ref
+        .read(apiClientProvider)
+        .downloadBytes('/chat/messages/${message.id}/attachment');
+    return _attachmentBytes = Uint8List.fromList(bytes);
+  }
+
+  String get _fileName => (message.attachmentFileName ?? 'chat-${message.id}')
+      .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+
+  String _downloadError(Object error) =>
+      error is ApiException && error.isNotFound
+      ? 'This upload is no longer on the server. Please ask the sender to resend it.'
+      : error is ApiException
+      ? error.message
+      : 'Download failed: $error';
+
   Future<String?> _downloadToFile() async {
     try {
-      final api = ref.read(apiClientProvider);
-      final bytes = await api.downloadBytes(
-        '/chat/messages/${message.id}/attachment',
-      );
-      final name = message.attachmentFileName ?? 'chat-${message.id}';
-      return await saveBytesToDevice(bytes, name);
-    } on ApiException catch (e) {
-      _snack(e.message);
-      return null;
+      final bytes = await _downloadBytes();
+      return await saveBytesToDevice(bytes, '${message.id}-$_fileName');
     } catch (e) {
-      _snack('Download failed: $e');
+      _snack(_downloadError(e));
       return null;
     }
   }
 
+  Future<void> _saveAttachment() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final bytes = await _downloadBytes();
+      final uri = await FilePicker.saveFile(
+        fileName: _fileName,
+        bytes: bytes,
+        mimeType: message.attachmentContentType ?? 'application/octet-stream',
+        dialogTitle: 'Save chat attachment',
+      );
+      if (uri != null) _snack('Attachment saved to your selected location.');
+    } catch (error) {
+      _snack(_downloadError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _openFile() async {
+    if (_busy) return;
     setState(() => _busy = true);
     final path = await _downloadToFile();
     if (mounted) setState(() => _busy = false);
-    if (path != null) {
+    if (path != null && mounted) {
       final result = await OpenFilex.open(path);
       if (result.type != ResultType.done) {
         _snack('Saved to device. ${result.message}');
@@ -361,39 +397,50 @@ class _MessageBubbleState extends ConsumerState<_MessageBubble> {
   }
 
   Future<void> _viewImage() async {
+    if (_busy) return;
     setState(() => _busy = true);
     Uint8List? bytes;
     try {
-      final api = ref.read(apiClientProvider);
-      bytes = Uint8List.fromList(
-        await api.downloadBytes('/chat/messages/${message.id}/attachment'),
-      );
+      bytes = await _downloadBytes();
     } catch (e) {
-      _snack('Could not load image: $e');
+      _snack(_downloadError(e));
     }
     if (mounted) setState(() => _busy = false);
     if (bytes != null && mounted) {
       await showDialog<void>(
         context: context,
-        builder: (_) => Dialog(
+        builder: (dialogContext) => Dialog(
           backgroundColor: Colors.black,
           insetPadding: const EdgeInsets.all(8),
           child: Stack(
             children: [
-              InteractiveViewer(child: Center(child: Image.memory(bytes!))),
+              InteractiveViewer(
+                child: Center(
+                  child: Image.memory(
+                    bytes!,
+                    errorBuilder: (_, _, _) => const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'Image preview is not supported. Use Download to save and open it.',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               Positioned(
                 top: 4,
                 right: 4,
                 child: IconButton(
                   icon: const Icon(Icons.close, color: Colors.white),
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => Navigator.pop(dialogContext),
                 ),
               ),
               Positioned(
                 bottom: 8,
                 right: 8,
                 child: FloatingActionButton.small(
-                  onPressed: _openFile,
+                  onPressed: _saveAttachment,
                   child: const Icon(Icons.download),
                 ),
               ),
@@ -516,7 +563,11 @@ class _MessageBubbleState extends ConsumerState<_MessageBubble> {
               ),
             ),
             const SizedBox(width: 4),
-            Icon(Icons.download_rounded, size: 16, color: textColor),
+            IconButton(
+              tooltip: 'Save attachment',
+              onPressed: _busy ? null : _saveAttachment,
+              icon: Icon(Icons.download_rounded, size: 20, color: textColor),
+            ),
           ],
         ),
       );

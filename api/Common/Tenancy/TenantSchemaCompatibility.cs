@@ -26,6 +26,7 @@ public static class TenantSchemaCompatibility
 
         await BackfillOrgDefaultsAsync(db, logger, cancellationToken);
         await EnsureChatTablesAsync(db, logger, cancellationToken);
+        await AttendanceSchemaCompatibility.EnsureAsync(db, logger, cancellationToken);
     }
 
     /// <summary>
@@ -110,6 +111,16 @@ public static class TenantSchemaCompatibility
             $"\"Token\" {vc(400)} NOT NULL, \"Platform\" {vc(20)} NULL, \"UpdatedAt\" {ts} NOT NULL");
         await CreateIndex("IX_chat_device_tokens_Token", "chat_device_tokens", "\"Token\"", unique: true);
         await CreateIndex("IX_chat_device_tokens_EmployeeId", "chat_device_tokens", "\"EmployeeId\"");
+
+        // Fail startup if durable attachment storage cannot be provisioned.
+        // Unlike the legacy DDL helper, do not swallow this error.
+        var binary = isPg ? "bytea" : isSqlite ? "BLOB" : "varbinary(max)";
+        var contentBody = $"\"Id\" {guid} PRIMARY KEY REFERENCES {pfx}\"chat_messages\" (\"Id\") ON DELETE CASCADE, " +
+            $"\"OrganizationId\" {guid} NOT NULL, \"Content\" {binary} NOT NULL";
+        var contentSql = isSqlServer
+            ? $"IF OBJECT_ID(N'chat_attachment_content', N'U') IS NULL CREATE TABLE [chat_attachment_content] ({contentBody});"
+            : $"CREATE TABLE IF NOT EXISTS {pfx}\"chat_attachment_content\" ({contentBody})";
+        await db.Database.ExecuteSqlRawAsync(contentSql, cancellationToken);
 
         _ = text;
         logger.LogInformation("Verified chat/calling tables.");

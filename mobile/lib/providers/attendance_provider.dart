@@ -64,7 +64,7 @@ final captureSettingsProvider = FutureProvider<CaptureSettings>((ref) async {
   final api = ref.watch(apiClientProvider);
   final json = await api.getMap('/attendance/capture-settings');
   return CaptureSettings.fromJson(json);
-});
+}, retry: (_, _) => null);
 
 List<AttendanceCorrection> _correctionItems(Map<String, dynamic> json) {
   final raw = json['items'];
@@ -99,14 +99,21 @@ final correctionDetailProvider =
 
 /// Actions for the attendance domain.
 class AttendanceActions {
-  AttendanceActions(this._ref);
+  AttendanceActions(
+    this._ref, {
+    ImagePicker? imagePicker,
+    this.locationCapture,
+  }) : _imagePicker = imagePicker ?? ImagePicker();
 
   final Ref _ref;
+  final ImagePicker _imagePicker;
+  final Future<Position?> Function()? locationCapture;
   ApiClient get _api => _ref.read(apiClientProvider);
 
   /// Best-effort capture of geolocation when enabled; returns null on denial/timeout.
   Future<Position?> _captureLocation() async {
     try {
+      if (locationCapture != null) return await locationCapture!();
       if (!await Geolocator.isLocationServiceEnabled()) return null;
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -130,7 +137,7 @@ class AttendanceActions {
   /// Best-effort selfie capture when enabled; returns null if the user cancels.
   Future<XFile?> _captureSelfie() async {
     try {
-      return await ImagePicker().pickImage(
+      return await _imagePicker.pickImage(
         source: ImageSource.camera,
         preferredCameraDevice: CameraDevice.front,
         maxWidth: 1080,
@@ -144,13 +151,22 @@ class AttendanceActions {
   /// `POST /attendance/punch` (multipart). Captures location + selfie per admin
   /// settings; punch still succeeds if the employee denies a permission.
   Future<PunchResult> punch() async {
-    final settings = await _ref.read(captureSettingsProvider.future);
+    // Re-read admin settings for each punch rather than using an indefinitely
+    // cached value. A transient settings failure must not block attendance.
+    CaptureSettings settings;
+    try {
+      settings = await _ref.refresh(captureSettingsProvider.future);
+    } catch (_) {
+      settings = const CaptureSettings();
+    }
+
+    // Open the front camera before waiting for GPS. Both check-in and checkout
+    // use this same path; an explicit admin photo-off setting is respected.
+    XFile? selfie;
+    if (settings.capturePhoto) selfie = await _captureSelfie();
 
     Position? position;
     if (settings.captureLocation) position = await _captureLocation();
-
-    XFile? selfie;
-    if (settings.capturePhoto) selfie = await _captureSelfie();
 
     final form = FormData.fromMap({
       'source': 'Mobile',
