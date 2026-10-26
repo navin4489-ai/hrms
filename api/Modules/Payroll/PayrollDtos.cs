@@ -46,6 +46,16 @@ public sealed record PayrollPeriodDto(
     DateOnly CutOffDate,
     DateTime? LockedAt);
 
+/// <summary>Request to configure an open payroll period.</summary>
+public sealed class CreatePayrollPeriodRequest
+{
+    public DateOnly StartDate { get; init; }
+    public DateOnly EndDate { get; init; }
+    public DateOnly CutOffDate { get; init; }
+    [System.ComponentModel.DataAnnotations.StringLength(50)]
+    public string? Label { get; init; }
+}
+
 /// <summary>Body for POST /payroll-periods/{id}/lock and .../unlock (reason required, FR-ADM-075).</summary>
 public sealed class PayrollPeriodActionRequest
 {

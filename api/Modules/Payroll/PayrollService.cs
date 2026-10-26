@@ -4,10 +4,12 @@ using Wintech.Hrms.Api.Common.CurrentUser;
 using Wintech.Hrms.Api.Common.ErrorHandling;
 using Wintech.Hrms.Api.Common.Registration;
 using Wintech.Hrms.Api.Common.Time;
+using Wintech.Hrms.Api.Common.Tenancy;
 using Wintech.Hrms.Api.Data;
 using Wintech.Hrms.Api.Domain.Payroll;
 using Wintech.Hrms.Api.Domain.Employees;
 using Wintech.Hrms.Api.Security;
+using Wintech.Hrms.Api.Modules.Organizations;
 
 namespace Wintech.Hrms.Api.Modules.Payroll;
 
@@ -22,6 +24,7 @@ public interface IPayrollService : IAppService
     Task<PayslipDetailDto> GetPayslipAsync(Guid id, CancellationToken cancellationToken = default);
     Task<PdfDownload> GeneratePayslipPdfAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PayrollPeriodDto>> GetPeriodsAsync(CancellationToken cancellationToken = default);
+    Task<PayrollPeriodDto> CreatePeriodAsync(CreatePayrollPeriodRequest request, CancellationToken cancellationToken = default);
     Task<PayrollPeriodDto> SetPeriodStateAsync(Guid id, PayrollPeriodStatus target, string reason, CancellationToken cancellationToken = default);
     Task<PayrollImportPreviewResult> PreviewPayslipImportAsync(Guid periodId, PayrollPayslipImportRequest request,
         CancellationToken cancellationToken = default);
@@ -31,6 +34,15 @@ public interface IPayrollService : IAppService
         CancellationToken cancellationToken = default);
     Task<PayrollPublishResult> PublishPayslipsAsync(Guid periodId, string reason,
         CancellationToken cancellationToken = default);
+
+    // Salary structures & automatic tax (finance fills pay details; tax is computed from them).
+    Task<IReadOnlyList<AdminSalaryStructureDto>> GetSalaryStructuresAsync(string? search,
+        CancellationToken cancellationToken = default);
+    Task<AdminSalaryStructureDto> SaveSalaryStructureAsync(Guid employeeId, SaveSalaryStructureRequest request,
+        CancellationToken cancellationToken = default);
+    Task<IncomeTaxEstimateDto> PreviewTaxAsync(SaveSalaryStructureRequest request,
+        CancellationToken cancellationToken = default);
+    Task<PayrollGenerateResult> GeneratePayslipsAsync(Guid periodId, CancellationToken cancellationToken = default);
 }
 
 public sealed class PayrollService : IPayrollService
@@ -39,18 +51,22 @@ public sealed class PayrollService : IPayrollService
     private readonly ICurrentUser _currentUser;
     private readonly IAuditService _audit;
     private readonly IClock _clock;
+    private readonly IOrganizationService _organizations;
 
-    public PayrollService(AppDbContext db, ICurrentUser currentUser, IAuditService audit, IClock clock)
+    public PayrollService(AppDbContext db, ICurrentUser currentUser, IAuditService audit, IClock clock,
+        IOrganizationService organizations)
     {
         _db = db;
         _currentUser = currentUser;
         _audit = audit;
         _clock = clock;
+        _organizations = organizations;
     }
 
     public async Task<PayrollImportPreviewResult> PreviewPayslipImportAsync(Guid periodId,
         PayrollPayslipImportRequest request, CancellationToken cancellationToken = default)
     {
+        await EnsurePayrollModuleAsync(cancellationToken);
         EnsurePayrollManage();
         var period = await _db.Set<PayrollPeriod>().AsNoTracking()
             .FirstOrDefaultAsync(item => item.Id == periodId, cancellationToken)
@@ -61,6 +77,7 @@ public sealed class PayrollService : IPayrollService
     public async Task<int> ImportPayslipsAsync(Guid periodId, PayrollPayslipImportRequest request,
         CancellationToken cancellationToken = default)
     {
+        await EnsurePayrollModuleAsync(cancellationToken);
         EnsurePayrollManage();
         var period = await _db.Set<PayrollPeriod>()
             .FirstOrDefaultAsync(item => item.Id == periodId, cancellationToken)
@@ -116,6 +133,7 @@ public sealed class PayrollService : IPayrollService
     public async Task<IReadOnlyList<PayrollAdminPayslipRow>> GetAdminPayslipsAsync(Guid periodId,
         CancellationToken cancellationToken = default)
     {
+        await EnsurePayrollModuleAsync(cancellationToken);
         EnsurePayrollManage();
         if (!await _db.Set<PayrollPeriod>().AnyAsync(period => period.Id == periodId, cancellationToken))
             throw new NotFoundException("Payroll period not found.");
@@ -139,6 +157,7 @@ public sealed class PayrollService : IPayrollService
     public async Task<PayrollPublishResult> PublishPayslipsAsync(Guid periodId, string reason,
         CancellationToken cancellationToken = default)
     {
+        await EnsurePayrollModuleAsync(cancellationToken);
         _currentUser.EnsureActive();
         if (!_currentUser.HasPermission(Permissions.PayrollPublish))
             throw new ForbiddenException("You do not have permission to publish payslips.");
@@ -167,6 +186,302 @@ public sealed class PayrollService : IPayrollService
         });
         await _db.SaveChangesAsync(cancellationToken);
         return new PayrollPublishResult(period.Id, drafts.Count, publishedAt);
+    }
+
+    // ------------------------------------------------------------------ salary structures & automatic tax
+
+    public async Task<IReadOnlyList<AdminSalaryStructureDto>> GetSalaryStructuresAsync(string? search,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsurePayrollModuleAsync(cancellationToken);
+        EnsurePayrollManage();
+        var term = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+
+        var employees = _db.Employees.AsNoTracking()
+            .Where(e => e.EmploymentStatus == EmploymentStatus.Active || e.EmploymentStatus == EmploymentStatus.Probation);
+        if (term is not null)
+            employees = employees.Where(e =>
+                e.EmployeeNumber.Contains(term) || e.DisplayName.Contains(term));
+
+        var employeeRows = await employees
+            .OrderBy(e => e.EmployeeNumber)
+            .Select(e => new
+            {
+                e.Id, e.EmployeeNumber, e.DisplayName,
+                Department = e.Department != null ? e.Department.Name : null
+            })
+            .ToListAsync(cancellationToken);
+        var structures = await _db.Set<EmployeeSalaryStructure>().AsNoTracking()
+            .ToDictionaryAsync(s => s.EmployeeId, cancellationToken);
+
+        var fy = IncomeTaxCalculator.FinancialYearOf(_clock.TodayIn("Asia/Kolkata"));
+        return employeeRows
+            .Select(row => MapStructure(row.Id, row.EmployeeNumber, row.DisplayName, row.Department,
+                structures.GetValueOrDefault(row.Id), fy))
+            .ToList();
+    }
+
+    public async Task<AdminSalaryStructureDto> SaveSalaryStructureAsync(Guid employeeId,
+        SaveSalaryStructureRequest request, CancellationToken cancellationToken = default)
+    {
+        await EnsurePayrollModuleAsync(cancellationToken);
+        EnsurePayrollManage();
+        var employee = await _db.Employees.AsNoTracking()
+            .Where(e => e.Id == employeeId)
+            .Select(e => new { e.Id, e.EmployeeNumber, e.DisplayName, Department = e.Department != null ? e.Department.Name : null })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException("Employee not found.");
+
+        var gross = GrossAnnualOf(request);
+        if (gross <= 0)
+            throw new RequestValidationException("Annual earnings must be greater than zero.",
+                new() { ["basicAnnual"] = ["Enter the employee's annual pay details (basic and allowances)."] });
+
+        var structure = await _db.Set<EmployeeSalaryStructure>()
+            .FirstOrDefaultAsync(s => s.EmployeeId == employeeId, cancellationToken);
+        if (structure is null)
+        {
+            structure = new EmployeeSalaryStructure { Id = Guid.NewGuid(), EmployeeId = employeeId };
+            _db.Add(structure);
+        }
+
+        structure.BasicAnnual = request.BasicAnnual;
+        structure.HraAnnual = request.HraAnnual;
+        structure.DaAnnual = request.DaAnnual;
+        structure.SpecialAllowanceAnnual = request.SpecialAllowanceAnnual;
+        structure.OtherAllowanceAnnual = request.OtherAllowanceAnnual;
+        structure.EmployerPfAnnual = request.EmployerPfAnnual;
+        structure.GratuityAnnual = request.GratuityAnnual;
+        structure.ProfessionalTaxMonthly = request.ProfessionalTaxMonthly;
+        structure.TaxRegime = ParseRegime(request.TaxRegime);
+        structure.Deduction80CAnnual = request.Deduction80CAnnual;
+        structure.Deduction80DAnnual = request.Deduction80DAnnual;
+        structure.HomeLoanInterestAnnual = request.HomeLoanInterestAnnual;
+        structure.OtherDeductionsAnnual = request.OtherDeductionsAnnual;
+        structure.UpdatedAt = _clock.UtcNow;
+        structure.UpdatedByUserId = _currentUser.UserId;
+
+        // Audited: pay details are compensation data and every change is traceable.
+        _audit.Add("payroll.salary.update", nameof(EmployeeSalaryStructure), structure.Id.ToString(), details: new
+        {
+            employee.EmployeeNumber,
+            structure.BasicAnnual, structure.HraAnnual, structure.DaAnnual,
+            structure.SpecialAllowanceAnnual, structure.OtherAllowanceAnnual,
+            structure.TaxRegime, AnnualCtc = gross
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var fy = IncomeTaxCalculator.FinancialYearOf(_clock.TodayIn("Asia/Kolkata"));
+        return MapStructure(employee.Id, employee.EmployeeNumber, employee.DisplayName, employee.Department, structure, fy);
+    }
+
+    public Task<IncomeTaxEstimateDto> PreviewTaxAsync(SaveSalaryStructureRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // Preview is read-only and permission-checked like any other payroll view; it works
+        // from unsaved values so finance can see the tax before committing the pay details.
+        _currentUser.EnsureActive();
+        if (!_currentUser.HasPermission(Permissions.PayrollManage))
+            throw new ForbiddenException("You do not have permission to manage payroll inputs.");
+        var fy = IncomeTaxCalculator.FinancialYearOf(_clock.TodayIn("Asia/Kolkata"));
+        var estimate = ComputeTax(request, fy);
+        return Task.FromResult(MapTax(estimate));
+    }
+
+    public async Task<PayrollGenerateResult> GeneratePayslipsAsync(Guid periodId,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsurePayrollModuleAsync(cancellationToken);
+        EnsurePayrollManage();
+        var period = await _db.Set<PayrollPeriod>()
+            .FirstOrDefaultAsync(p => p.Id == periodId, cancellationToken)
+            ?? throw new NotFoundException("Payroll period not found.");
+        EnsurePeriodOpen(period);
+
+        // A full calendar month pays a full month; partial or multi-month windows prorate by
+        // the share of each calendar month the period covers.
+        var monthFactor = PeriodMonthFactor(period.StartDate, period.EndDate);
+
+        var employees = await _db.Employees.AsNoTracking()
+            .Where(e => e.EmploymentStatus == EmploymentStatus.Active || e.EmploymentStatus == EmploymentStatus.Probation)
+            .Select(e => new { e.Id, e.EmployeeNumber, e.DisplayName })
+            .ToListAsync(cancellationToken);
+        var structures = await _db.Set<EmployeeSalaryStructure>().AsNoTracking()
+            .ToDictionaryAsync(s => s.EmployeeId, cancellationToken);
+
+        var existing = await _db.Set<Payslip>().AsNoTracking()
+            .Where(p => p.PeriodId == period.Id)
+            .Select(p => p.EmployeeId)
+            .ToHashSetAsync(cancellationToken);
+
+        var generated = 0;
+        var skipped = new List<string>();
+        foreach (var employee in employees)
+        {
+            if (!structures.TryGetValue(employee.Id, out var structure) || existing.Contains(employee.Id))
+            {
+                skipped.Add(employee.EmployeeNumber);
+                continue;
+            }
+
+            var payslip = BuildPayslip(period, employee.Id, structure, monthFactor);
+            _db.Add(payslip);
+            generated++;
+        }
+
+        if (generated == 0)
+            throw new ConflictException(
+                "No payslips were generated. Every active employee either already has a payslip for this period or has no pay details recorded.");
+
+        _audit.Add("payroll.payslips.generate", nameof(PayrollPeriod), period.Id.ToString(), details: new
+        {
+            period.Label,
+            generated,
+            skipped = skipped.Count
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return new PayrollGenerateResult(period.Id, period.Label, generated, skipped.Count, skipped);
+    }
+
+    /// <summary>Builds one draft payslip from an employee's pay details for the given period.</summary>
+    internal Payslip BuildPayslip(PayrollPeriod period, Guid employeeId, EmployeeSalaryStructure structure,
+        decimal monthFactor)
+    {
+        var monthlyBasic = structure.BasicAnnual / 12m;
+        var earnings = new List<(string Name, decimal Amount)>
+        {
+            ("Basic", monthlyBasic)
+        };
+        if (structure.HraAnnual > 0) earnings.Add(("HRA", structure.HraAnnual / 12m));
+        if (structure.DaAnnual > 0) earnings.Add(("DA", structure.DaAnnual / 12m));
+        if (structure.SpecialAllowanceAnnual > 0) earnings.Add(("Special Allowance", structure.SpecialAllowanceAnnual / 12m));
+        if (structure.OtherAllowanceAnnual > 0) earnings.Add(("Other Allowance", structure.OtherAllowanceAnnual / 12m));
+
+        var monthlyGross = earnings.Sum(e => e.Amount);
+
+        // Statutory employee deductions: PF 12% of basic subject to the ₹15,000 wage ceiling,
+        // ESI 0.75% when monthly gross is at or below ₹21,000, plus state professional tax.
+        var employeePf = Math.Round(Math.Min(monthlyBasic, 15_000m) * 0.12m, 2);
+        var esi = monthlyGross <= 21_000m ? Math.Round(monthlyGross * 0.0075m, 2) : 0m;
+        var ptax = structure.ProfessionalTaxMonthly;
+        var fy = IncomeTaxCalculator.FinancialYearOf(period.StartDate);
+        var monthlyTds = ComputeTax(structure, fy).MonthlyTds;
+
+        var deductions = new List<(string Name, decimal Amount)>();
+        if (employeePf > 0) deductions.Add(("Employee PF", employeePf));
+        if (esi > 0) deductions.Add(("Employee ESI", esi));
+        if (ptax > 0) deductions.Add(("Professional Tax", ptax));
+        if (monthlyTds > 0) deductions.Add(("Income Tax (TDS)", monthlyTds));
+
+        var gross = Math.Round(monthlyGross * monthFactor, 2);
+        var totalDeductions = Math.Round(deductions.Sum(d => d.Amount) * monthFactor, 2);
+
+        var components = earnings
+            .Select(e => new PayslipComponent
+            {
+                Id = Guid.NewGuid(),
+                Component = e.Name,
+                Amount = Math.Round(e.Amount * monthFactor, 2),
+                Kind = PayslipComponentKind.Earning
+            })
+            .Concat(deductions.Select(d => new PayslipComponent
+            {
+                Id = Guid.NewGuid(),
+                Component = d.Name,
+                Amount = Math.Round(d.Amount * monthFactor, 2),
+                Kind = PayslipComponentKind.Deduction
+            }))
+            .ToList();
+
+        return new Payslip
+        {
+            Id = Guid.NewGuid(),
+            PeriodId = period.Id,
+            EmployeeId = employeeId,
+            StartDate = period.StartDate,
+            EndDate = period.EndDate,
+            Gross = gross,
+            TotalDeductions = totalDeductions,
+            NetPay = Math.Round(gross - totalDeductions, 2),
+            Currency = structure.Currency.Trim().ToUpperInvariant(),
+            Status = PayslipStatus.Draft,
+            GeneratedAt = _clock.UtcNow,
+            Components = components
+        };
+    }
+
+    private static decimal GrossAnnualOf(SaveSalaryStructureRequest request) =>
+        request.BasicAnnual + request.HraAnnual + request.DaAnnual +
+        request.SpecialAllowanceAnnual + request.OtherAllowanceAnnual;
+
+    private static decimal GrossAnnualOf(EmployeeSalaryStructure structure) =>
+        structure.BasicAnnual + structure.HraAnnual + structure.DaAnnual +
+        structure.SpecialAllowanceAnnual + structure.OtherAllowanceAnnual;
+
+    private static TaxRegime ParseRegime(string? value) =>
+        string.Equals(value?.Trim(), "Old", StringComparison.OrdinalIgnoreCase) ? TaxRegime.Old : TaxRegime.New;
+
+    private static IncomeTaxEstimate ComputeTax(SaveSalaryStructureRequest request, int fy) =>
+        IncomeTaxCalculator.Compute(ParseRegime(request.TaxRegime), fy, GrossAnnualOf(request),
+            request.Deduction80CAnnual + request.Deduction80DAnnual + request.HomeLoanInterestAnnual +
+            request.OtherDeductionsAnnual);
+
+    private static IncomeTaxEstimate ComputeTax(EmployeeSalaryStructure structure, int fy) =>
+        IncomeTaxCalculator.Compute(structure.TaxRegime, fy, GrossAnnualOf(structure),
+            structure.Deduction80CAnnual + structure.Deduction80DAnnual + structure.HomeLoanInterestAnnual +
+            structure.OtherDeductionsAnnual);
+
+    /// <summary>Share of calendar months covered by the period: 1.0 for a full month.</summary>
+    public static decimal PeriodMonthFactor(DateOnly start, DateOnly end)
+    {
+        decimal factor = 0;
+        var cursor = new DateOnly(start.Year, start.Month, 1);
+        while (cursor <= end)
+        {
+            var monthEnd = new DateOnly(cursor.Year, cursor.Month, DateTime.DaysInMonth(cursor.Year, cursor.Month));
+            var overlapStart = start > cursor ? start : cursor;
+            var overlapEnd = end < monthEnd ? end : monthEnd;
+            if (overlapStart <= overlapEnd)
+                factor += (overlapEnd.DayNumber - overlapStart.DayNumber + 1) /
+                          (decimal)DateTime.DaysInMonth(cursor.Year, cursor.Month);
+            cursor = cursor.AddMonths(1);
+        }
+        return factor;
+    }
+
+    private static IncomeTaxEstimateDto MapTax(IncomeTaxEstimate estimate) => new(
+        estimate.Regime, estimate.FinancialYear, estimate.AnnualGross, estimate.StandardDeduction,
+        estimate.ChapterViADeductions, estimate.TaxableIncome, estimate.TaxBeforeRebate,
+        estimate.Rebate87A, estimate.Cess, estimate.AnnualTax, estimate.MonthlyTds);
+
+    private static AdminSalaryStructureDto MapStructure(Guid employeeId, string employeeNumber, string employeeName,
+        string? department, EmployeeSalaryStructure? structure, int fy)
+    {
+        var regime = structure?.TaxRegime ?? TaxRegime.New;
+        var basic = structure?.BasicAnnual ?? 0m;
+        var gross = structure is null ? 0m : GrossAnnualOf(structure);
+        var estimate = IncomeTaxCalculator.Compute(regime, fy, gross,
+            structure?.Deduction80CAnnual + structure?.Deduction80DAnnual +
+            structure?.HomeLoanInterestAnnual + structure?.OtherDeductionsAnnual ?? 0m);
+        return new AdminSalaryStructureDto(
+            employeeId, employeeNumber, employeeName, department,
+            basic,
+            structure?.HraAnnual ?? 0m,
+            structure?.DaAnnual ?? 0m,
+            structure?.SpecialAllowanceAnnual ?? 0m,
+            structure?.OtherAllowanceAnnual ?? 0m,
+            structure?.EmployerPfAnnual ?? 0m,
+            structure?.GratuityAnnual ?? 0m,
+            structure?.ProfessionalTaxMonthly ?? 0m,
+            regime == TaxRegime.Old ? "Old" : "New",
+            structure?.Deduction80CAnnual ?? 0m,
+            structure?.Deduction80DAnnual ?? 0m,
+            structure?.HomeLoanInterestAnnual ?? 0m,
+            structure?.OtherDeductionsAnnual ?? 0m,
+            Math.Round(gross + (structure?.EmployerPfAnnual ?? 0m) + (structure?.GratuityAnnual ?? 0m), 2),
+            Math.Round(gross / 12m, 2),
+            MapTax(estimate),
+            structure?.UpdatedAt);
     }
 
     private async Task<PayrollImportPreviewResult> ValidatePayslipImportAsync(PayrollPeriod period,
@@ -225,6 +540,15 @@ public sealed class PayrollService : IPayrollService
             throw new ForbiddenException("You do not have permission to manage payroll inputs.");
     }
 
+    private async Task EnsurePayrollModuleAsync(CancellationToken cancellationToken)
+    {
+        var enabled = (await _organizations.GetMyModulesAsync(cancellationToken))
+            .Any(module => string.Equals(module.Key, OrgModules.Payroll, StringComparison.OrdinalIgnoreCase)
+                           && module.Enabled);
+        if (!enabled)
+            throw new ForbiddenException("Payroll is not enabled for your organization.");
+    }
+
     private static void EnsurePeriodOpen(PayrollPeriod period)
     {
         if (period.Status != PayrollPeriodStatus.Open)
@@ -233,6 +557,7 @@ public sealed class PayrollService : IPayrollService
 
     public async Task<IReadOnlyList<PayslipListItem>> GetPayslipsAsync(int? year, Guid? employeeId, CancellationToken cancellationToken = default)
     {
+        await EnsurePayrollModuleAsync(cancellationToken);
         _currentUser.EnsureActive();
         var targetEmployeeId = ResolvePayslipScope(employeeId);
 
@@ -269,6 +594,7 @@ public sealed class PayrollService : IPayrollService
 
     public async Task<PayslipDetailDto> GetPayslipAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        await EnsurePayrollModuleAsync(cancellationToken);
         _currentUser.EnsureActive();
         var payslip = await LoadScopedPayslipAsync(id, cancellationToken);
 
@@ -325,6 +651,7 @@ public sealed class PayrollService : IPayrollService
 
     public async Task<PdfDownload> GeneratePayslipPdfAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        await EnsurePayrollModuleAsync(cancellationToken);
         _currentUser.EnsureActive();
         var payslip = await LoadScopedPayslipAsync(id, cancellationToken);
 
@@ -382,14 +709,87 @@ public sealed class PayrollService : IPayrollService
 
     public async Task<IReadOnlyList<PayrollPeriodDto>> GetPeriodsAsync(CancellationToken cancellationToken = default)
     {
+        await EnsurePayrollModuleAsync(cancellationToken);
+        EnsurePayrollManage();
         var periods = await _db.Set<PayrollPeriod>().AsNoTracking()
             .OrderByDescending(p => p.StartDate)
             .ToListAsync(cancellationToken);
         return periods.Select(Map).ToList();
     }
 
+    public async Task<PayrollPeriodDto> CreatePeriodAsync(CreatePayrollPeriodRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsurePayrollModuleAsync(cancellationToken);
+        EnsurePayrollManage();
+
+        if (request.StartDate == default || request.EndDate == default || request.CutOffDate == default)
+            throw new RequestValidationException(errors: new()
+            {
+                ["dates"] = ["Start date, end date and cut-off date are required."]
+            });
+        if (request.EndDate < request.StartDate)
+            throw new RequestValidationException(errors: new()
+            {
+                ["endDate"] = ["End date must be on or after the start date."]
+            });
+        if (request.EndDate.DayNumber - request.StartDate.DayNumber >= 366)
+            throw new RequestValidationException(errors: new()
+            {
+                ["endDate"] = ["A payroll period cannot be longer than 366 days."]
+            });
+        if (request.CutOffDate < request.EndDate)
+            throw new RequestValidationException(errors: new()
+            {
+                ["cutOffDate"] = ["Cut-off date cannot be before the period ends."]
+            });
+
+        var label = string.IsNullOrWhiteSpace(request.Label)
+            ? request.StartDate.ToString("MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)
+            : request.Label.Trim();
+        if (label.Length > 50)
+            throw new RequestValidationException(errors: new()
+            {
+                ["label"] = ["Period label cannot exceed 50 characters."]
+            });
+
+        var overlaps = await _db.Set<PayrollPeriod>().AsNoTracking().AnyAsync(period =>
+            period.StartDate <= request.EndDate && period.EndDate >= request.StartDate,
+            cancellationToken);
+        if (overlaps)
+            throw new ConflictException("This date range overlaps an existing payroll period.");
+
+        var labelExists = await _db.Set<PayrollPeriod>().AsNoTracking()
+            .AnyAsync(period => period.Label.ToLower() == label.ToLower(), cancellationToken);
+        if (labelExists)
+            throw new ConflictException("A payroll period with this label already exists.");
+
+        var periodEntity = new PayrollPeriod
+        {
+            Id = Guid.NewGuid(),
+            Label = label,
+            StartDate = request.StartDate,
+            EndDate = request.EndDate,
+            CutOffDate = request.CutOffDate,
+            Status = PayrollPeriodStatus.Open,
+            CreatedAt = _clock.UtcNow
+        };
+        _db.Set<PayrollPeriod>().Add(periodEntity);
+        _audit.Add("payroll.period.create", nameof(PayrollPeriod), periodEntity.Id.ToString(), details: new
+        {
+            periodEntity.Label,
+            periodEntity.StartDate,
+            periodEntity.EndDate,
+            periodEntity.CutOffDate
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return Map(periodEntity);
+    }
+
     public async Task<PayrollPeriodDto> SetPeriodStateAsync(Guid id, PayrollPeriodStatus target, string reason, CancellationToken cancellationToken = default)
     {
+        await EnsurePayrollModuleAsync(cancellationToken);
+        EnsurePayrollManage();
         if (string.IsNullOrWhiteSpace(reason))
             throw new RequestValidationException(errors: new() { ["reason"] = ["A reason is required."] });
 

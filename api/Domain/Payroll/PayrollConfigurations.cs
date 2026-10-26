@@ -60,3 +60,30 @@ public sealed class PayslipComponentConfiguration : IEntityTypeConfiguration<Pay
             .OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+public sealed class EmployeeSalaryStructureConfiguration : IEntityTypeConfiguration<EmployeeSalaryStructure>
+{
+    public void Configure(EntityTypeBuilder<EmployeeSalaryStructure> builder)
+    {
+        builder.ToTable("pay_employee_salary_structures");
+        builder.HasKey(s => s.Id);
+        // One pay record per employee: finance edits it in place.
+        builder.HasIndex(s => s.EmployeeId).IsUnique();
+        builder.Property(s => s.Currency).HasMaxLength(10).IsRequired();
+        foreach (var property in new[]
+                 {
+                     nameof(EmployeeSalaryStructure.BasicAnnual), nameof(EmployeeSalaryStructure.HraAnnual),
+                     nameof(EmployeeSalaryStructure.DaAnnual), nameof(EmployeeSalaryStructure.SpecialAllowanceAnnual),
+                     nameof(EmployeeSalaryStructure.OtherAllowanceAnnual), nameof(EmployeeSalaryStructure.EmployerPfAnnual),
+                     nameof(EmployeeSalaryStructure.GratuityAnnual), nameof(EmployeeSalaryStructure.ProfessionalTaxMonthly),
+                     nameof(EmployeeSalaryStructure.Deduction80CAnnual), nameof(EmployeeSalaryStructure.Deduction80DAnnual),
+                     nameof(EmployeeSalaryStructure.HomeLoanInterestAnnual), nameof(EmployeeSalaryStructure.OtherDeductionsAnnual)
+                 })
+            builder.Property(property).HasPrecision(18, 2);
+
+        builder.HasOne(s => s.Employee)
+            .WithMany()
+            .HasForeignKey(s => s.EmployeeId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}

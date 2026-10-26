@@ -72,3 +72,50 @@ public class PayslipComponent
     public decimal Amount { get; set; }
     public PayslipComponentKind Kind { get; set; }
 }
+
+/// <summary>Income-tax regime used for the automatic TDS computation.</summary>
+public enum TaxRegime
+{
+    /// <summary>Default: concessional slabs, standard deduction, no chapter-VI-A deductions.</summary>
+    New = 0,
+    /// <summary>Classic slabs with 80C/80D/home-loan deductions and HRA-style declarations.</summary>
+    Old = 1
+}
+
+/// <summary>
+/// Finance-entered annual pay details for one employee. Drives automatic income-tax
+/// (TDS) estimation and payslip generation. Amounts are annual INR unless stated.
+/// </summary>
+public class EmployeeSalaryStructure
+{
+    public Guid Id { get; set; }
+    public Guid EmployeeId { get; set; }
+    public Employee? Employee { get; set; }
+
+    public decimal BasicAnnual { get; set; }
+    public decimal HraAnnual { get; set; }
+    public decimal DaAnnual { get; set; }
+    public decimal SpecialAllowanceAnnual { get; set; }
+    public decimal OtherAllowanceAnnual { get; set; }
+
+    /// <summary>Employer PF contribution — part of CTC but never deducted from gross pay.</summary>
+    public decimal EmployerPfAnnual { get; set; }
+
+    /// <summary>Gratuity accrual — CTC information only, not part of monthly gross.</summary>
+    public decimal GratuityAnnual { get; set; }
+
+    /// <summary>State professional tax per month (₹0–2500; 0 where the state levies none).</summary>
+    public decimal ProfessionalTaxMonthly { get; set; } = 200m;
+
+    public TaxRegime TaxRegime { get; set; } = TaxRegime.New;
+
+    // Chapter VI-A declarations (old regime only; capped by the tax calculator).
+    public decimal Deduction80CAnnual { get; set; }
+    public decimal Deduction80DAnnual { get; set; }
+    public decimal HomeLoanInterestAnnual { get; set; }
+    public decimal OtherDeductionsAnnual { get; set; }
+
+    public string Currency { get; set; } = "INR";
+    public DateTime UpdatedAt { get; set; }
+    public Guid? UpdatedByUserId { get; set; }
+}

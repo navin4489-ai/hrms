@@ -17,8 +17,11 @@ using Wintech.Hrms.Api.Domain.Admin;
 using Wintech.Hrms.Api.Domain.Chat;
 using Wintech.Hrms.Api.Domain.Employees;
 using Wintech.Hrms.Api.Domain.Organization;
+using Wintech.Hrms.Api.Domain.Payroll;
 using Wintech.Hrms.Api.Modules.Attendance;
 using Wintech.Hrms.Api.Modules.Chat;
+using Wintech.Hrms.Api.Modules.Organizations;
+using Wintech.Hrms.Api.Modules.Payroll;
 
 // Isolated, deterministic regression: never touches production or local HR data.
 await using var connection = new SqliteConnection("Data Source=:memory:");
@@ -150,6 +153,99 @@ try
 catch (ForbiddenException) { Console.WriteLine("PASS: former members denied attachment download"); }
 Console.WriteLine("Attachment regression passed.");
 
+// ------------------------------------------------------------------ payroll & tax regression
+// Covers the finance-maintained pay details: automatic Indian income-tax (TDS) estimation
+// and payslip generation from those pay details. Deterministic — no waiting, no prod data.
+var payrollUser = new TestUser(employee.Id) { Admin = true };
+var payroll = new PayrollService(db, payrollUser, new AuditService(db, payrollUser, clock), clock,
+    new TestOrganizations());
+
+// Tax calculator: ₹12L new-regime FY2026 gross is fully rebated (Budget 2025 §87A).
+var tax12 = IncomeTaxCalculator.Compute(TaxRegime.New, 2026, 1_200_000m);
+Assert(tax12.TaxableIncome == 1_125_000m && tax12.AnnualTax == 0m && tax12.MonthlyTds == 0m,
+    "new regime FY2026: 12L gross -> zero tax after 87A rebate");
+
+// ₹18L new-regime: taxable 17.25L -> 1.45L tax + 4% cess, no rebate.
+var tax18 = IncomeTaxCalculator.Compute(TaxRegime.New, 2026, 1_800_000m);
+Assert(tax18.TaxBeforeRebate == 145_000m && tax18.Rebate87A == 0m && tax18.Cess == 5_800m
+       && tax18.AnnualTax == 150_800m && tax18.MonthlyTds == 12_566.67m,
+    "new regime FY2026: 18L gross -> 150,800 annual tax, 12,566.67 monthly TDS");
+
+// Old regime honours Chapter VI-A (80C etc.) and the ₹50k standard deduction.
+var taxOld = IncomeTaxCalculator.Compute(TaxRegime.Old, 2026, 1_000_000m, chapterViA: 150_000m);
+Assert(taxOld.TaxableIncome == 800_000m && taxOld.AnnualTax == 75_400m,
+    "old regime: 80C reduces taxable income and tax is computed on old slabs");
+
+// A full calendar month pays exactly one month; a half month pays half.
+Assert(PayrollService.PeriodMonthFactor(new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31)) == 1m,
+    "full-month payroll period has a 1.0 month factor");
+Assert(PayrollService.PeriodMonthFactor(new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 15)) == 15m / 31m,
+    "half-month payroll period prorates by covered days");
+
+// Finance fills pay details; tax is derived from them, never typed in.
+// ₹20L package: new-regime FY2026 taxable 19.25L -> 1.85L slab tax, no rebate, +4% cess.
+var paySave = await payroll.SaveSalaryStructureAsync(employee.Id, new SaveSalaryStructureRequest
+{
+    BasicAnnual = 1_200_000m, HraAnnual = 480_000m, DaAnnual = 120_000m,
+    SpecialAllowanceAnnual = 200_000m, TaxRegime = "New", ProfessionalTaxMonthly = 200m
+});
+db.ChangeTracker.Clear();
+Assert(paySave.AnnualCtc == 2_000_000m && paySave.MonthlyGross == 166_666.67m,
+    "saving pay details computes CTC and monthly gross from the components");
+Assert(paySave.Tax.TaxableIncome == 1_925_000m && paySave.Tax.AnnualTax == 192_400m
+       && paySave.Tax.MonthlyTds == 16_033.33m,
+    "saving pay details computes the annual tax and its monthly TDS");
+
+// Employees never see pay details; only payroll.manage (finance/admin) does.
+try
+{
+    payrollUser.Admin = false;
+    await payroll.GetSalaryStructuresAsync(null);
+    throw new Exception("Employee read salary structures");
+}
+catch (ForbiddenException) { Console.WriteLine("PASS: employee denied pay details"); }
+payrollUser.Admin = true;
+
+// Create an October period and generate payslips automatically from the pay details.
+var october = new PayrollPeriod
+{
+    Id = Guid.NewGuid(), Label = "Oct 2026", StartDate = new DateOnly(2026, 10, 1),
+    EndDate = new DateOnly(2026, 10, 31), CutOffDate = new DateOnly(2026, 11, 5),
+    Status = PayrollPeriodStatus.Open, CreatedAt = clock.UtcNow
+};
+db.Add(october);
+await db.SaveChangesAsync();
+db.ChangeTracker.Clear();
+
+var generate = await payroll.GeneratePayslipsAsync(october.Id);
+db.ChangeTracker.Clear();
+Assert(generate.Generated == 1, "generate creates a payslip for the employee with pay details");
+
+var payslip = await db.Set<Payslip>().Include(p => p.Components).SingleAsync(p => p.PeriodId == october.Id);
+var earnings = payslip.Components.Where(c => c.Kind == PayslipComponentKind.Earning).ToList();
+var deductions = payslip.Components.Where(c => c.Kind == PayslipComponentKind.Deduction).ToList();
+Assert(earnings.Any(c => c.Component == "Basic" && c.Amount == 100_000m)
+       && earnings.Any(c => c.Component == "HRA" && c.Amount == 40_000m),
+    "generated payslip has Basic and HRA earnings from the annual structure");
+Assert(deductions.Any(c => c.Component == "Employee PF" && c.Amount == 1_800m),
+    "generated payslip computes employee PF at 12% of basic capped at the 15k wage ceiling");
+Assert(deductions.Any(c => c.Component == "Professional Tax" && c.Amount == 200m),
+    "generated payslip carries the configured professional tax");
+Assert(deductions.Any(c => c.Component == "Income Tax (TDS)" && c.Amount == paySave.Tax.MonthlyTds),
+    "generated payslip embeds the automatic monthly TDS");
+Assert(payslip.Gross == 166_666.67m
+       && payslip.NetPay == Math.Round(payslip.Gross - payslip.TotalDeductions, 2),
+    "generated payslip net pay equals gross less deductions");
+
+// Re-running generation must not duplicate payslips.
+try
+{
+    await payroll.GeneratePayslipsAsync(october.Id);
+    throw new Exception("Regenerate duplicated payslips");
+}
+catch (ConflictException) { Console.WriteLine("PASS: regenerate refuses once every payslip exists"); }
+Console.WriteLine("Payroll & tax regression passed.");
+
 static void Assert(bool result, string label)
 {
     if (!result) throw new Exception(label);
@@ -215,4 +311,23 @@ sealed class TestPush : IPushSender
         Guid conversationId, CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task SendIncomingCallAsync(Guid recipientEmployeeId, string callerName, string callerEmployeeId,
         string callId, string kind, CancellationToken cancellationToken = default) => Task.CompletedTask;
+}
+
+/// <summary>Payroll module is enabled so the payroll regression can run end to end.</summary>
+sealed class TestOrganizations : IOrganizationService
+{
+    public Task<IReadOnlyList<OrgModuleFlagDto>> GetMyModulesAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<OrgModuleFlagDto>>([
+            new() { Key = OrgModules.Payroll, Label = "Payroll & Payslips", Enabled = true }
+        ]);
+    public Task<IReadOnlyList<OrganizationDto>> ListAsync(CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<OrganizationDetailDto> GetAsync(Guid id, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<OrganizationDetailDto> CreateAsync(CreateOrganizationRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<OrganizationDetailDto> UpdateAsync(Guid id, UpdateOrganizationRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+    public Task<OrganizationDetailDto> UpdateModulesAsync(Guid id, UpdateOrgModulesRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
 }

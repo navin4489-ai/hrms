@@ -27,6 +27,7 @@ public static class TenantSchemaCompatibility
         await BackfillOrgDefaultsAsync(db, logger, cancellationToken);
         await EnsureChatTablesAsync(db, logger, cancellationToken);
         await AttendanceSchemaCompatibility.EnsureAsync(db, logger, cancellationToken);
+        await PayrollSchemaCompatibility.EnsureAsync(db, logger, cancellationToken);
     }
 
     /// <summary>

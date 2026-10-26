@@ -69,3 +69,95 @@ public sealed record PayrollAdminPayslipRow(
     string Status,
     DateTime GeneratedAt,
     DateTime? PublishedAt);
+
+// ------------------------------------------------------------------ salary structures & automatic tax
+
+/// <summary>Finance-maintained pay details for one employee with the computed tax preview.</summary>
+public sealed record AdminSalaryStructureDto(
+    Guid EmployeeId,
+    string EmployeeNumber,
+    string EmployeeName,
+    string? Department,
+    decimal BasicAnnual,
+    decimal HraAnnual,
+    decimal DaAnnual,
+    decimal SpecialAllowanceAnnual,
+    decimal OtherAllowanceAnnual,
+    decimal EmployerPfAnnual,
+    decimal GratuityAnnual,
+    decimal ProfessionalTaxMonthly,
+    string TaxRegime,
+    decimal Deduction80CAnnual,
+    decimal Deduction80DAnnual,
+    decimal HomeLoanInterestAnnual,
+    decimal OtherDeductionsAnnual,
+    decimal AnnualCtc,
+    decimal MonthlyGross,
+    IncomeTaxEstimateDto Tax,
+    DateTime? UpdatedAt);
+
+/// <summary>Write body for creating or replacing an employee's pay details.</summary>
+public sealed class SaveSalaryStructureRequest
+{
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0", "999999999999")]
+    public decimal BasicAnnual { get; init; }
+
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0", "999999999999")]
+    public decimal HraAnnual { get; init; }
+
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0", "999999999999")]
+    public decimal DaAnnual { get; init; }
+
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0", "999999999999")]
+    public decimal SpecialAllowanceAnnual { get; init; }
+
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0", "999999999999")]
+    public decimal OtherAllowanceAnnual { get; init; }
+
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0", "999999999999")]
+    public decimal EmployerPfAnnual { get; init; }
+
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0", "999999999999")]
+    public decimal GratuityAnnual { get; init; }
+
+    /// <summary>Monthly professional tax (₹0–2500; states without PT use 0).</summary>
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0", "2500")]
+    public decimal ProfessionalTaxMonthly { get; init; } = 200m;
+
+    [System.ComponentModel.DataAnnotations.StringLength(10)]
+    public string TaxRegime { get; init; } = "New";
+
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0", "999999999999")]
+    public decimal Deduction80CAnnual { get; init; }
+
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0", "999999999999")]
+    public decimal Deduction80DAnnual { get; init; }
+
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0", "999999999999")]
+    public decimal HomeLoanInterestAnnual { get; init; }
+
+    [System.ComponentModel.DataAnnotations.Range(typeof(decimal), "0", "999999999999")]
+    public decimal OtherDeductionsAnnual { get; init; }
+}
+
+/// <summary>Computed annual tax shown while finance edits pay details (before or after saving).</summary>
+public sealed record IncomeTaxEstimateDto(
+    string Regime,
+    int FinancialYear,
+    decimal AnnualGross,
+    decimal StandardDeduction,
+    decimal ChapterViADeductions,
+    decimal TaxableIncome,
+    decimal TaxBeforeRebate,
+    decimal Rebate87A,
+    decimal Cess,
+    decimal AnnualTax,
+    decimal MonthlyTds);
+
+/// <summary>Result of POST /payroll-periods/{id}/generate — automatic payslip calculation.</summary>
+public sealed record PayrollGenerateResult(
+    Guid PeriodId,
+    string PeriodLabel,
+    int Generated,
+    int Skipped,
+    IReadOnlyList<string> SkippedEmployees);

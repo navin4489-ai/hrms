@@ -8,6 +8,7 @@ import '../features/admin/admin_users_screen.dart';
 import '../features/admin/admin_system_screen.dart';
 import '../features/admin/admin_reports_screen.dart';
 import '../features/admin/admin_payroll_periods_screen.dart';
+import '../features/admin/admin_salary_structures_screen.dart';
 import '../features/admin/admin_documents_screen.dart';
 import '../features/admin/admin_assets_screen.dart';
 import '../features/admin/admin_organization_screen.dart';
@@ -74,6 +75,7 @@ import '../features/performance/performance_screen.dart';
 import '../features/performance/self_assessment_screen.dart';
 import '../providers/auth_provider.dart';
 import '../features/shell/app_shell.dart';
+import '../widgets/module_gate.dart';
 
 /// Auth routes (accessible without a session).
 const _authPaths = <String>{'/login', '/mfa', '/forgot-password', '/blocked'};
@@ -261,16 +263,32 @@ final routerProvider = Provider<GoRouter>((ref) {
                         builder: (_, __) => const AdminReportsScreen(),
                       ),
                       GoRoute(
+                        path: 'payroll/salaries',
+                        builder: (_, __) => const ModuleGate(
+                          moduleKey: 'payroll',
+                          moduleLabel: 'Payroll',
+                          child: AdminSalaryStructuresScreen(),
+                        ),
+                      ),
+                      GoRoute(
                         path: 'payroll-periods',
-                        builder: (_, __) => const AdminPayrollPeriodsScreen(),
+                        builder: (_, __) => const ModuleGate(
+                          moduleKey: 'payroll',
+                          moduleLabel: 'Payroll',
+                          child: AdminPayrollPeriodsScreen(),
+                        ),
                         routes: [
                           GoRoute(
                             path: ':periodId/import',
-                            builder: (_, state) => AdminPayrollImportScreen(
-                              periodId: state.pathParameters['periodId']!,
-                              periodLabel:
-                                  state.uri.queryParameters['label'] ??
-                                  'Payroll period',
+                            builder: (_, state) => ModuleGate(
+                              moduleKey: 'payroll',
+                              moduleLabel: 'Payroll',
+                              child: AdminPayrollImportScreen(
+                                periodId: state.pathParameters['periodId']!,
+                                periodLabel:
+                                    state.uri.queryParameters['label'] ??
+                                    'Payroll period',
+                              ),
                             ),
                           ),
                         ],
@@ -373,12 +391,20 @@ final routerProvider = Provider<GoRouter>((ref) {
                   // Payslips
                   GoRoute(
                     path: 'payslips',
-                    builder: (_, __) => const PayslipsScreen(),
+                    builder: (_, __) => const ModuleGate(
+                      moduleKey: 'payroll',
+                      moduleLabel: 'Payroll & payslips',
+                      child: PayslipsScreen(),
+                    ),
                     routes: [
                       GoRoute(
                         path: ':id',
-                        builder: (_, state) => PayslipDetailScreen(
-                          payslipId: state.pathParameters['id']!,
+                        builder: (_, state) => ModuleGate(
+                          moduleKey: 'payroll',
+                          moduleLabel: 'Payroll & payslips',
+                          child: PayslipDetailScreen(
+                            payslipId: state.pathParameters['id']!,
+                          ),
                         ),
                       ),
                     ],

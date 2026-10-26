@@ -73,6 +73,7 @@ class MoreScreen extends ConsumerWidget {
     // never locked out by a transient fetch failure.
     final modules = ref.watch(meModulesProvider).value;
     bool moduleOn(String m) => modules == null || modules.contains(m);
+    final payrollModuleOn = modules?.contains('payroll') ?? false;
 
     return AppScaffold(
       title: Strings.moreTitle,
@@ -252,11 +253,18 @@ class MoreScreen extends ConsumerWidget {
                         label: 'Workforce reports',
                         onTap: () => context.go('/more/admin/reports'),
                       ),
-                    if (canManagePayroll && moduleOn('payroll'))
+                    if (canManagePayroll && payrollModuleOn)
                       _Tile(
                         icon: Icons.payments_outlined,
                         label: 'Payroll periods',
                         onTap: () => context.go('/more/admin/payroll-periods'),
+                      ),
+                    if (canManagePayroll && payrollModuleOn)
+                      _Tile(
+                        icon: Icons.account_balance_outlined,
+                        label: 'Salary & tax',
+                        onTap: () =>
+                            context.go('/more/admin/payroll/salaries'),
                       ),
                     if ((canManagePerformance && moduleOn('performance')) ||
                         (canManageTraining && moduleOn('training')))
@@ -312,11 +320,12 @@ class MoreScreen extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
               child: Column(
                 children: [
-                  _Tile(
-                    icon: Icons.receipt_long_outlined,
-                    label: Strings.payslips,
-                    onTap: () => context.go('/more/payslips'),
-                  ),
+                  if (payrollModuleOn)
+                    _Tile(
+                      icon: Icons.receipt_long_outlined,
+                      label: Strings.payslips,
+                      onTap: () => context.go('/more/payslips'),
+                    ),
                   _Tile(
                     icon: Icons.folder_copy_outlined,
                     label: Strings.documents,

@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/common.dart';
 import 'api_provider.dart';
+import 'auth_provider.dart';
 
 /// One per-org module flag from `GET /me/modules` or an org detail.
 class OrgModuleFlag {
@@ -90,6 +91,11 @@ class OrganizationDetail {
 /// `GET /me/modules` — enabled feature modules for the caller's organization.
 /// Used by the app to hide modules a SuperAdmin disabled for this org.
 final meModulesProvider = FutureProvider<Set<String>>((ref) async {
+  // Refresh organization flags across logout/login so a prior user's cached
+  // module set cannot keep disabled features visible in the next session.
+  ref.watch(
+    authControllerProvider.select((state) => (state.status, state.user?.id)),
+  );
   final api = ref.watch(apiClientProvider);
   final list = await api.getList('/me/modules');
   return list
